@@ -69,6 +69,9 @@ scripts/probe-hermes.sh --url https://hermes.example.ts.net:8443 --key "$HERMES_
 - Connection requests use an ephemeral `URLSession` with no cookies, credential storage, or cache.
 - Same-host HTTPS redirects are followed (common behind reverse proxies and Tailscale front ends); redirects that change host or downgrade to HTTP are rejected so the `Authorization` header is never sent to another origin. Endpoint construction stays within the configured HTTPS origin.
 - Connection testing currently probes `GET /health`, authenticated `GET /v1/models`, and optional `GET /mobile/v1/capabilities`.
+- `HermesEndpoint` is the single implementation of endpoint construction and the same-origin rule, shared by the connection and chat clients.
+- Chat streaming rejects a response whose final URL left the configured origin before reading any of its body, and a generation guard prevents a cancelled turn from appending to a newer one.
+- Assistant text is display content only; it is never treated as structured tool metadata or as an approval.
 - Errors distinguish invalid configuration, offline, timeout, TLS, unauthorized, forbidden, unavailable, incompatible response, redirect, and cancellation states.
 - `ServerProfile` is explicitly nonisolated so its `Codable` conformance remains safe from persistence actors under Swift 6 isolation rules.
 
@@ -87,14 +90,15 @@ Hermes/
 │   ├── Chat/ChatModels.swift      # chat and agent event models
 │   └── Connection/                # profile, capabilities, checks, errors, interpreters
 ├── Features/
-│   ├── Connection/                # connection editor model and form
+│   ├── Chat/                     # conversation turn coordinator and chat screen
+│   ├── Connection/               # connection editor model and form
 │   ├── Onboarding/WelcomeView.swift
-│   └── Settings/                  # settings screen and app-icon picker
+│   └── Settings/                 # settings screen and app-icon picker
 ├── Infrastructure/
-│   ├── API/                       # SSEParser, ChatCompletionsEventDecoder
+│   ├── API/                      # SSEParser, ChatCompletionsEventDecoder
 │   ├── Auth/CredentialStore.swift
 │   ├── Logging/HermesLogger.swift
-│   ├── Networking/                # HTTP client, connection test, response preview
+│   ├── Networking/               # HTTP client, chat streaming, connection test
 │   └── Persistence/ConnectionSettingsStore.swift
 ├── ContentView.swift              # compatibility wrapper/preview entry
 └── HermesApp.swift                # app entry and root dependency state
