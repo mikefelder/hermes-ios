@@ -1,14 +1,25 @@
 # Hermes for iPhone
 
-A native SwiftUI companion for a self-hosted [Nous Research Hermes Agent](https://github.com/NousResearch/hermes-agent). The app is designed for a Hermes instance running on Azure and reachable from the iPhone over Tailscale.
+A native SwiftUI client for a self-hosted [Nous Research Hermes Agent](https://github.com/NousResearch/hermes-agent). The app is designed for a Hermes instance running on Azure Container Apps and reachable from the iPhone over Tailscale.
 
-Connection settings, the secure app foundation, and streaming chat are implemented and verified against a live deployment on a physical device. Conversation persistence, Markdown rendering, and turn reconciliation are next; sessions, automations, media, and push are not started.
+Streaming chat, server-side sessions, Markdown rendering, capability discovery, and turn reconciliation are implemented and verified against a live deployment on a physical device. Approvals, automations, and push are not started.
 
 ## Product intent
 
-Hermes for iPhone is a chat-first remote control for one personal Hermes Agent. It should make the highest-value mobile workflows excellent: converse with the agent, follow streamed work, approve risky actions, inspect artifacts, resume sessions, launch background work, manage automations, and receive completion notifications.
+This app is a way to reach one personal Hermes Agent from an iPhone. It is not a standalone product with its own model, memory, or conversation store.
 
-The user configures the server URL, username, and secret in the app. The URL and username are stored as non-secret settings; the secret is stored in the iOS Keychain. Against a Hermes API server reached directly over a tailnet, that secret is the `API_SERVER_KEY` sent as a Bearer token. Against a deployment that fronts Hermes with a credential-validating proxy, it is the user's password and the proxy holds the key instead.
+**Hermes is authoritative.** Sessions, transcripts, tool execution, skills, memory, and configuration all live on the server and are shared by every client — the web dashboard, the terminal UI, and this app. A conversation started in the web UI can be continued on the phone and vice versa, because it is the same session object, not a copy.
+
+That shapes the architecture:
+
+- The app reads and writes server state rather than mirroring it. There is no local conversation database to drift, conflict, or need migrating.
+- Features are discovered, not assumed. `GET /v1/capabilities` states what the deployment supports, and anything unsupported is disabled honestly rather than faked.
+- Tools run on the Hermes host, never on the phone. Tool output is rendered as inert text and is never treated as an instruction or an approval.
+- The only state that is genuinely local is what the server cannot hold: the connection profile, the Keychain secret, unsent drafts, and records of turns whose outcome is uncertain.
+
+The deliberate trade is offline behaviour: without a local cache there is no transcript to read when the tailnet is unreachable. A read-through cache of recently viewed sessions can be added if that proves annoying in practice.
+
+The user configures the server URL, username, and secret. The URL and username are stored as non-secret settings; the secret is stored in the iOS Keychain. Against a Hermes API server reached directly over a tailnet, that secret is the `API_SERVER_KEY` sent as a Bearer token. Against a deployment that fronts Hermes with a credential-validating proxy, it is the user's password and the proxy holds the key instead.
 
 ## Requirements
 
@@ -27,6 +38,16 @@ In the reference Azure deployment a Tailscale sidecar publishes both surfaces on
 | --- | --- | --- |
 | `443` | Web dashboard (browser only) | Username + password |
 | `8443` | OpenAI-compatible API server | API key as a Bearer token |
+
+The API server exposes more than chat. `GET /v1/capabilities` advertises what a given build supports; the reference deployment offers Chat Completions, the Responses API, session resources, run approvals, tool progress events, and skills, all behind the same bearer key.
+
+A turn uses the richest protocol the server supports:
+
+| Protocol | Used when | Behaviour |
+| --- | --- | --- |
+| `POST /api/sessions/{id}/chat/stream` | A session is open and sessions are supported | Server owns the transcript; only the new message is sent |
+| `POST /v1/responses` | No session bound, Responses supported | Server-side continuity through `previous_response_id` |
+| `POST /v1/chat/completions` | Universal fallback | Stateless; the full transcript is resent each turn |
 
 Configure the app with:
 
@@ -52,8 +73,12 @@ scripts/probe-hermes.sh --url https://hermes.example.ts.net:8443 --key "$HERMES_
 - Proposed credentials are tested before replacing a working profile.
 - Forget Server removes the profile metadata and its Keychain secret.
 - The app shows connection state and discovered chat/mobile-adapter capabilities.
-- Chat streams an assistant turn token by token over `POST /v1/chat/completions`, with a live transcript, a stop control that keeps partial text, and a new-conversation action.
-- Sessions and Automations tabs contain milestone placeholders; conversations are held in memory and clear on relaunch.
+- Chat streams an assistant turn token by token, with a live transcript, a control that disconnects the stream while keeping partial text, and a new-conversation action.
+- Sessions lists the agent's own sessions whatever created them — web dashboard, terminal UI, or this app — with source, message count, and tool-call count. Opening one loads its transcript and continues it.
+- Assistant Markdown renders headings, lists, quotes, tables, links, and fenced code with copy and horizontal scrolling. Tool calls and tool output appear as inert fenced blocks.
+- The running tool is named while it works.
+- A dropped turn is reconciled against the server rather than resent; a resend is offered only when the turn provably never started.
+- Automations remains a milestone placeholder.
 - App content is covered whenever the scene is inactive to reduce app-switcher exposure.
 - Four brand app icons ship in the asset catalog (Orbital Seal is the default; Luminous Agent, Orbital Engraved, and Signal Mark are alternates), switchable at runtime in Settings → Appearance → App Icon. Source masters live in `design/app-icons/` outside the app bundle.
 
@@ -68,10 +93,12 @@ scripts/probe-hermes.sh --url https://hermes.example.ts.net:8443 --key "$HERMES_
 - Passwords use a generic-password Keychain item with `kSecAttrAccessibleWhenUnlockedThisDeviceOnly` and never enter `ServerProfile` or `UserDefaults`.
 - Connection requests use an ephemeral `URLSession` with no cookies, credential storage, or cache.
 - Same-host HTTPS redirects are followed (common behind reverse proxies and Tailscale front ends); redirects that change host or downgrade to HTTP are rejected so the `Authorization` header is never sent to another origin. Endpoint construction stays within the configured HTTPS origin.
-- Connection testing currently probes `GET /health`, authenticated `GET /v1/models`, and optional `GET /mobile/v1/capabilities`.
-- `HermesEndpoint` is the single implementation of endpoint construction and the same-origin rule, shared by the connection and chat clients.
+- Connection testing probes `GET /health`, authenticated `GET /v1/models`, and `GET /v1/capabilities`.
+- Capabilities are discovered from the server, persisted, and refreshed on launch. They select the chat protocol and gate every optional feature; an unknown server degrades to chat only.
+- `HermesEndpoint` is the single implementation of endpoint construction and the same-origin rule, shared by every client.
 - Chat streaming rejects a response whose final URL left the configured origin before reading any of its body, and a generation guard prevents a cancelled turn from appending to a newer one.
-- Assistant text is display content only; it is never treated as structured tool metadata or as an approval.
+- `ChatTurnCoordinator` owns one foreground stream per conversation and tracks acceptance, so a dropped turn is reconciled against the server transcript instead of being blindly resent.
+- Assistant text and tool output are display content only; neither is treated as structured metadata or as an approval.
 - Errors distinguish invalid configuration, offline, timeout, TLS, unauthorized, forbidden, unavailable, incompatible response, redirect, and cancellation states.
 - `ServerProfile` is explicitly nonisolated so its `Codable` conformance remains safe from persistence actors under Swift 6 isolation rules.
 
@@ -90,15 +117,16 @@ Hermes/
 │   ├── Chat/ChatModels.swift      # chat and agent event models
 │   └── Connection/                # profile, capabilities, checks, errors, interpreters
 ├── Features/
-│   ├── Chat/                     # conversation turn coordinator and chat screen
+│   ├── Chat/                     # turn coordinator, conversation, chat screen, Markdown views
 │   ├── Connection/               # connection editor model and form
 │   ├── Onboarding/WelcomeView.swift
+│   ├── Sessions/                 # server session list
 │   └── Settings/                 # settings screen and app-icon picker
 ├── Infrastructure/
-│   ├── API/                      # SSEParser, ChatCompletionsEventDecoder
+│   ├── API/                      # SSE parser and the three stream decoders
 │   ├── Auth/CredentialStore.swift
 │   ├── Logging/HermesLogger.swift
-│   ├── Networking/               # HTTP client, chat streaming, connection test
+│   ├── Networking/               # HTTP, chat streaming, sessions, capabilities
 │   └── Persistence/ConnectionSettingsStore.swift
 ├── ContentView.swift              # compatibility wrapper/preview entry
 └── HermesApp.swift                # app entry and root dependency state
@@ -184,27 +212,36 @@ If a connected physical iPhone is locked, Xcode may repeatedly log failure to st
 
 ## Roadmap
 
-Streaming chat works end to end: `HermesChatClient` drives `SSEParser` and
-`ChatCompletionsEventDecoder` through an injectable transport, and
-`ChatConversationModel` coordinates a turn with a generation guard. The next
-work is conversation persistence, Markdown rendering, and reconciling a turn
-whose outcome is unknown after a dropped stream.
-
-Because Chat Completions is stateless, every turn resends the full transcript on
-top of the agent's own system context. Moving to `POST /v1/responses` with
-`previous_response_id`, or to the session-based adapter, is the main lever for
-keeping long conversations affordable.
+Chat, sessions, Markdown, capability discovery, and turn reconciliation are in
+place. The next work is claiming more of what the server already offers:
+explicit session creation so every conversation appears in Sessions, run
+approvals for dangerous commands, session management (rename, delete, fork), and
+a per-session model picker.
 
 Known gaps:
 
-- No Markdown renderer; assistant text renders as plain selectable text.
-- No draft safety, retry, or outcome-unknown reconciliation after a dropped turn.
-- Connection probing has no injected `URLProtocol`/mock transport tests, and the staged test includes no streaming framing probe.
+- A new conversation is not bound to a session until one is opened, so it appears
+  in Sessions only after Hermes creates it implicitly.
+- Approvals and clarifications are not implemented, though the server advertises
+  `run_approval_response` and `approval_events`.
+- Drafts and uncertain-turn records are not persisted, so an app kill during a
+  turn loses the reconciliation marker.
+- Sessions and transcripts are not paginated; the list and history are capped.
+- Reasoning content returned by the server is not displayed.
+- No offline reading: without a cache there is no transcript when the tailnet is
+  unreachable. This is a deliberate trade, revisitable as a read-through cache.
+- Connection probing has no injected `URLProtocol`/mock transport tests, and the
+  staged test includes no streaming framing probe.
 - Network path and protected-data availability are not observed.
-- Capabilities are held in memory after a successful test but not restored across launches, so the model name is omitted and Hermes picks its default.
-- No `HermesUITests` target, local mock server, CI workflow, `.xcconfig`, or string catalog.
-- No SwiftData conversation cache.
-- No companion `/mobile/v1` adapter or APNs relay.
+- No `HermesUITests` target, local mock server, CI workflow, `.xcconfig`, or
+  string catalog.
+- No APNs relay.
+
+The specifications under `docs/` predate the discovery that the API server
+exposes session resources, approvals, and capability discovery. They still
+describe a `/mobile/v1` companion adapter as required for sessions, and a
+SwiftData cache as the persistence strategy. Both assumptions are superseded by
+this README; the documents will be reconciled as those areas are implemented.
 
 Acceptance criteria and later milestones are in the [Delivery plan](docs/DELIVERY_PLAN.md).
 
