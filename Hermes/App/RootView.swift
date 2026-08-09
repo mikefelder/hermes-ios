@@ -44,7 +44,7 @@ struct MainTabView: View {
     var body: some View {
         TabView {
             NavigationStack {
-                ChatHomeView(appModel: appModel)
+                ChatView(appModel: appModel)
             }
             .tabItem { Label("Chat", systemImage: "message") }
 
@@ -74,31 +74,6 @@ struct MainTabView: View {
         .tint(HermesTheme.textPrimary)
         .toolbarBackground(HermesTheme.canvas, for: .tabBar)
         .toolbarBackground(.visible, for: .tabBar)
-    }
-}
-
-struct ChatHomeView: View {
-    @Bindable var appModel: AppModel
-
-    var body: some View {
-        VStack(spacing: HermesSpacing.large) {
-            Spacer()
-            Image(systemName: "sparkles")
-                .font(.system(size: 52, weight: .medium))
-                .accessibilityHidden(true)
-            Text("Ready for Hermes")
-                .font(.title2.weight(.semibold))
-            Text("The secure connection foundation is configured. Streaming chat is the next implementation milestone.")
-                .foregroundStyle(HermesTheme.textSecondary)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 420)
-            ConnectionStatusPill(state: appModel.connectionState)
-            Spacer()
-        }
-        .padding(HermesSpacing.large)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .navigationTitle(appModel.activeProfile?.name ?? "Hermes")
-        .hermesScreen()
     }
 }
 

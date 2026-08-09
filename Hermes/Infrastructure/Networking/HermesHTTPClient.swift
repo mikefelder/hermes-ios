@@ -67,7 +67,7 @@ nonisolated enum RedirectPolicy {
 /// Follows redirects that stay on the same host over HTTPS and rejects any redirect
 /// that would change host or downgrade transport, so the `Authorization` header is
 /// never sent to a different origin.
-private final class OriginRedirectPolicyDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+final class OriginRedirectPolicyDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
     private let baseURL: URL
     private let authorizationHeader: String
 
@@ -167,53 +167,10 @@ final class HermesHTTPClient: @unchecked Sendable {
     }
 
     private func endpointURL(_ endpoint: String) throws -> URL {
-        guard profile.baseURL.scheme?.lowercased() == "https",
-              profile.baseURL.host != nil else {
-            throw HermesConnectionError.invalidConfiguration("Hermes requires a valid HTTPS server URL.")
-        }
-        let components = endpoint.split(separator: "/").map(String.init)
-        let url = components.reduce(profile.baseURL) { partial, component in
-            partial.appendingPathComponent(component)
-        }
-        guard isSameOrigin(url) else {
-            throw HermesConnectionError.invalidConfiguration("The requested endpoint is outside the configured server.")
-        }
-        return url
-    }
-
-    private func isSameOrigin(_ url: URL) -> Bool {
-        guard let left = URLComponents(url: profile.baseURL, resolvingAgainstBaseURL: false),
-              let right = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
-            return false
-        }
-        return left.scheme?.lowercased() == right.scheme?.lowercased()
-            && left.host?.lowercased() == right.host?.lowercased()
-            && effectivePort(left) == effectivePort(right)
-            && right.path.hasPrefix(left.path)
-    }
-
-    private func effectivePort(_ components: URLComponents) -> Int? {
-        components.port ?? (components.scheme?.lowercased() == "https" ? 443 : nil)
+        try HermesEndpoint.url(base: profile.baseURL, path: endpoint)
     }
 
     private func map(_ error: URLError) -> HermesConnectionError {
-        switch error.code {
-        case .cancelled:
-            .cancelled
-        case .timedOut:
-            .timedOut
-        case .notConnectedToInternet, .networkConnectionLost, .cannotFindHost, .cannotConnectToHost,
-             .dnsLookupFailed, .internationalRoamingOff, .dataNotAllowed:
-            .offline
-        case .serverCertificateHasBadDate, .serverCertificateUntrusted,
-             .serverCertificateHasUnknownRoot, .serverCertificateNotYetValid,
-             .clientCertificateRejected, .clientCertificateRequired,
-             .secureConnectionFailed:
-            .tlsFailure
-        case .httpTooManyRedirects, .redirectToNonExistentLocation:
-            .redirectedOutsideServer
-        default:
-            .other("The secure connection failed (\(error.code.rawValue)).")
-        }
+        .from(error)
     }
 }
