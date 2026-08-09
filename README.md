@@ -2,45 +2,67 @@
 
 A native SwiftUI companion for a self-hosted [Nous Research Hermes Agent](https://github.com/NousResearch/hermes-agent). The app is designed for a Hermes instance running on Azure and reachable from the iPhone over Tailscale.
 
-> **Development status (August 6, 2026):** the secure app foundation and connection-settings vertical slice are implemented and verified. Reliable streamed chat is the next milestone. See [Development handoff](#development-handoff) for the exact resume point.
+Connection settings, the secure app foundation, and the streaming primitives are implemented. Reliable streamed chat is the next milestone; sessions, automations, media, and push are not started.
 
-## Development handoff
+## Product intent
 
-This section is the source of truth for resuming work in a new development session.
+Hermes for iPhone is a chat-first remote control for one personal Hermes Agent. It should make the highest-value mobile workflows excellent: converse with the agent, follow streamed work, approve risky actions, inspect artifacts, resume sessions, launch background work, manage automations, and receive completion notifications.
 
-### Current milestone state
+The user configures the server URL, username, and secret in the app. The URL and username are stored as non-secret settings; the secret is stored in the iOS Keychain. Against a Hermes API server reached directly over a tailnet, that secret is the `API_SERVER_KEY` sent as a Bearer token. Against a deployment that fronts Hermes with a credential-validating proxy, it is the user's password and the proxy holds the key instead.
 
-| Area | State | Notes |
+## Requirements
+
+- Xcode 26.2 or newer
+- iOS 26.2 deployment target
+- A reachable Hermes Agent instance
+- The Tailscale app, signed in to the same tailnet, when the server is published as a Tailscale Service
+
+## Connecting to a Hermes server
+
+The app talks to Hermes' OpenAI-compatible **API server**. That is a different surface from the Hermes web dashboard, and pointing the app at the dashboard is the most common setup mistake: the dashboard answers `/v1/...` with an HTML login redirect rather than JSON.
+
+In the reference Azure deployment a Tailscale sidecar publishes both surfaces on one hostname:
+
+| Port | Surface | Credentials |
 | --- | --- | --- |
-| Product/engineering specifications | Complete | Eight detailed specifications are available under `docs/` and duplicated under `Hermes/docs/`; resolve that duplication before committing. |
-| Phase 0 deployment discovery | External work pending | Deployed Hermes version, Azure edge behavior, sanitized API fixtures, and final adapter decision are not yet recorded. |
-| Phase 1 app foundation | Substantially complete | App shell, dependency environment, design tokens, navigation, privacy cover, logging wrapper, unit-test target, and shared scheme are implemented. CI, `.xcconfig`, string catalog, UI-test target, and local mock server remain. |
-| Phase 2 secure connection | Core vertical slice complete | Editable profile, HTTPS validation, Keychain password, Basic Auth client, staged connection test, capability snapshot, onboarding, settings, and forget flow are implemented. Network-path/protected-data awareness and deterministic network contract tests remain. |
-| Phase 3 reliable chat | Not started | This is the next primary implementation milestone. |
-| Phases 4–9 | Not started | Companion adapter, sessions, interactions, media, automations, push, and release hardening follow stable chat. |
+| `443` | Web dashboard (browser only) | Username + password |
+| `8443` | OpenAI-compatible API server | API key as a Bearer token |
 
-### Implemented user experience
+Configure the app with:
+
+- **Server URL** — `https://hermes.<tailnet>.ts.net:8443`, including the port
+- **Username** — left blank, which is what selects Bearer authentication
+- **API key** — the Hermes `API_SERVER_KEY`, stored only in the iPhone Keychain
+
+A deployment that puts a username/password-validating proxy in front of Hermes is also supported: enter the username and password, and the app sends HTTP Basic instead.
+
+To check what a host actually serves before configuring the app, run the bundled probe. It reports status, content type, redirects, and a short body preview, and states whether you reached the API server or the dashboard:
+
+```bash
+scripts/probe-hermes.sh --url https://hermes.example.ts.net:8443 --key "$HERMES_API_KEY"
+```
+
+## Features
 
 - First launch presents Hermes-styled connection onboarding.
-- The user enters an editable agent name, HTTPS server URL, username, and password.
+- The user enters an editable agent name, HTTPS server URL, username, and secret (a password or an API key).
 - Saving is disabled until those exact settings pass a connection test.
 - Existing users can edit, retest, and save connection settings from Settings.
-- A blank password while editing preserves the existing Keychain credential.
+- A blank secret while editing preserves the existing Keychain credential, so clear it deliberately when switching a profile between password and API-key authentication.
 - Proposed credentials are tested before replacing a working profile.
-- Forget Server removes the profile metadata and its Keychain password.
+- Forget Server removes the profile metadata and its Keychain secret.
 - The app shows connection state and discovered chat/mobile-adapter capabilities.
 - Chat, Sessions, Automations, and Settings tabs are present; only Settings and connection onboarding are functional. The other product areas intentionally contain milestone placeholders.
 - App content is covered whenever the scene is inactive to reduce app-switcher exposure.
 - Four brand app icons ship in the asset catalog (Orbital Seal is the default; Luminous Agent, Orbital Engraved, and Signal Mark are alternates), switchable at runtime in Settings → Appearance → App Icon. Source masters live in `design/app-icons/` outside the app bundle.
 
-### Implemented architecture and security
+## Architecture and security
 
 - `AppEnvironment` owns protocol-backed settings, credential, connection-test, and logging dependencies.
 - `AppModel` restores and transactionally updates the active server profile.
 - `ServerProfile` normalizes host casing and trailing slashes while preserving ports and reverse-proxy path prefixes.
 - Production configuration requires HTTPS and rejects URLs containing embedded credentials, queries, or fragments.
-- Authentication supports HTTP Basic (username + password) and Bearer API keys: a blank username sends the secret as a Bearer `API_SERVER_KEY`, which is how a Hermes API server reached directly over Tailscale expects to be called. Basic usernames containing `:` are rejected to avoid ambiguous encoding.
-- The server URL must point at the API server, not the web dashboard. In the reference Azure deployment the Tailscale Service publishes the dashboard on `443` and the API server on `8443`, so the base URL is `https://hermes.<tailnet>.ts.net:8443` with a blank username. Port `443` returns the dashboard login redirect for `/v1/...`.
+- Authentication supports HTTP Basic (username + password) and Bearer API keys, selected by whether a username is present. Basic usernames containing `:` are rejected to avoid ambiguous encoding.
 - The connection test reads the server's `WWW-Authenticate` challenge and reports whether the server expects an API key or a username/password.
 - Passwords use a generic-password Keychain item with `kSecAttrAccessibleWhenUnlockedThisDeviceOnly` and never enter `ServerProfile` or `UserDefaults`.
 - Connection requests use an ephemeral `URLSession` with no cookies, credential storage, or cache.
@@ -49,7 +71,7 @@ This section is the source of truth for resuming work in a new development sessi
 - Errors distinguish invalid configuration, offline, timeout, TLS, unauthorized, forbidden, unavailable, incompatible response, redirect, and cancellation states.
 - `ServerProfile` is explicitly nonisolated so its `Codable` conformance remains safe from persistence actors under Swift 6 isolation rules.
 
-### Current source map
+## Project layout
 
 ```text
 Hermes/
@@ -59,55 +81,43 @@ Hermes/
 │   └── RootView.swift             # restore gate, tabs, placeholders, privacy cover
 ├── DesignSystem/
 │   ├── HermesTheme.swift          # colors, spacing, card/screen modifiers
-│   └── Components/
-│       └── ConnectionStatusPill.swift
-├── Domain/Connection/
-│   └── ConnectionModels.swift     # profile, capabilities, checks, connection errors
+│   └── Components/ConnectionStatusPill.swift
+├── Domain/
+│   ├── Chat/ChatModels.swift      # chat and agent event models
+│   └── Connection/                # profile, capabilities, checks, errors, interpreters
 ├── Features/
-│   ├── Connection/
-│   │   ├── ConnectionEditorModel.swift
-│   │   └── ConnectionFormView.swift
+│   ├── Connection/                # connection editor model and form
 │   ├── Onboarding/WelcomeView.swift
-│   └── Settings/SettingsView.swift
+│   └── Settings/                  # settings screen and app-icon picker
 ├── Infrastructure/
+│   ├── API/                       # SSEParser, ChatCompletionsEventDecoder
 │   ├── Auth/CredentialStore.swift
 │   ├── Logging/HermesLogger.swift
-│   ├── Networking/
-│   │   ├── ConnectionTestService.swift
-│   │   └── HermesHTTPClient.swift
+│   ├── Networking/                # HTTP client, connection test, response preview
 │   └── Persistence/ConnectionSettingsStore.swift
 ├── ContentView.swift              # compatibility wrapper/preview entry
 └── HermesApp.swift                # app entry and root dependency state
 
-HermesTests/
-└── ConnectionFoundationTests.swift
-
-Hermes.xcodeproj/xcshareddata/xcschemes/
-└── Hermes.xcscheme                # shared Build/Test/Run scheme
+HermesTests/                       # nine Swift Testing suites
+scripts/probe-hermes.sh            # endpoint discovery helper
+design/app-icons/                  # icon source masters, outside the app bundle
+docs/                              # product and engineering specifications
 ```
 
 Xcode uses file-system-synchronized groups, so empty-looking `PBXSourcesBuildPhase` arrays in `project.pbxproj` are expected. Do not manually add each Swift file to those arrays.
 
-### Verification baseline
+## Build and test
 
-The following checks passed on August 6, 2026 with Xcode 26.2 (build `17C52`) and the iOS 26.2 simulator SDK:
+The unit tests cover URL normalization and unsafe-URL rejection, authorization header construction, redirect policy, health and model-list interpretation, SSE parsing, chat event decoding, response previews, and Keychain credential round-tripping.
 
-- Debug simulator build
-- Clean Release simulator build
-- Xcode static analysis
-- Shared-scheme unit tests: **11/11 passed**
-- Real simulator Keychain save, replace, load, delete, and idempotent delete
-- Project-file and shared-scheme XML parsing
-- Editor diagnostics and `git diff --check`
-- Source-diff scan for hard-coded credentials
+```bash
+xcodebuild test \
+  -project Hermes.xcodeproj \
+  -scheme Hermes \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro'
+```
 
-The test suite covers URL normalization and unsafe URL rejection, Basic Authentication encoding, profile persistence without password data, idempotent metadata deletion, and Keychain credential round-tripping.
-
-Xcode 27.0 Beta (build `27A5228h`) is installed at `/Applications/Xcode-beta.app` with the iOS 27.0 device and simulator SDKs. A clean universal (`arm64` + `x86_64`) Debug simulator build and an arm64 `HermesTests` build-for-testing pass with that toolchain. Xcode 27 also recognizes the connected physical `Alpine iPhone` as a compatible destination.
-
-The target iPhone runs the iOS 27 public beta. The app has not yet been installed, launched, or exercised on it, so physical iOS 27 behavior remains a required validation step. No concrete iOS 27 simulator is currently listed by the Beta toolchain; executable tests therefore still run on the installed iOS 26.2 simulator.
-
-Run the verified checks from the repository root:
+Additional checks used before a release checkpoint:
 
 ```bash
 xcodebuild build \
@@ -154,57 +164,35 @@ Do not pass `CODE_SIGNING_ALLOWED=NO` to the Keychain-inclusive test command. An
 
 If a connected physical iPhone is locked, Xcode may repeatedly log failure to start `com.apple.mobile.notification_proxy`. This is unrelated to a test explicitly targeted at the simulator.
 
-### Repository state and cautions
+## Development notes
 
-- The Phase 1/2 implementation and documentation were still uncommitted at the last verified handoff. Run `git status --short` before editing or committing.
-- Documentation lives only in the root `docs/` tree that `README.md` links to. The former `Hermes/docs/` copy was removed because the app target's file-synchronized group shipped it inside the app bundle; the built `.app` now contains no Markdown.
 - `Hermes.xcodeproj/project.pbxproj` contains the `HermesTests` target. Its `buildConfigurationList` must remain `AA100000000000000000000B`; an interrupted edit previously produced an invalid 25-character reference and caused empty test settings.
 - The deployment target is intentionally iOS 26.2 because that SDK is installed. Lowering it remains an open product decision, not a build repair.
-- The physical target runs iOS 27 public beta, but the deployment target remains iOS 26.2. Do not raise it merely to run on iOS 27; an iOS 26.2-targeted app remains compatible unless it adopts iOS 27-only APIs.
-- `xcode-select -p` still points to stable `/Applications/Xcode.app/Contents/Developer`. Prefix Beta command-line builds with `DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer` rather than changing the global selection unless all local projects should use Beta.
-- Xcode 27 Beta's Swift 6.4 compiler crashed on the async Objective-C thunk for `URLSessionTaskDelegate` redirect handling. `HermesHTTPClient` now uses the equivalent completion-handler callback and still rejects all redirects.
-- Xcode 27 rejects actor initialization with a non-Sendable `UserDefaults` parameter. `ConnectionSettingsStore` is now a small `@unchecked Sendable` final class; its async protocol boundary and persistence behavior are unchanged.
+- The physical target runs the iOS 27 public beta, but the deployment target remains iOS 26.2. Do not raise it merely to run on iOS 27; an iOS 26.2-targeted app remains compatible unless it adopts iOS 27-only APIs.
+- `xcode-select -p` points at stable `/Applications/Xcode.app/Contents/Developer`. Prefix Beta command-line builds with `DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer` rather than changing the global selection.
+- Xcode 27 Beta's Swift 6.4 compiler crashed on the async Objective-C thunk for `URLSessionTaskDelegate` redirect handling. `HermesHTTPClient` uses the equivalent completion-handler callback instead.
+- Xcode 27 rejects actor initialization with a non-Sendable `UserDefaults` parameter. `ConnectionSettingsStore` is a small `@unchecked Sendable` final class; its async protocol boundary and persistence behavior are unchanged.
+- Documentation lives only in the root `docs/` tree. A former `Hermes/docs/` copy was removed because the app target's file-synchronized group shipped it inside the app bundle.
 - The app currently forces dark appearance in `HermesApp.swift`.
 - No external Swift packages are installed.
-- No real Azure/Hermes credentials, hostnames, API keys, APNs keys, or production fixtures are committed.
+- No real credentials, hostnames, API keys, APNs keys, or production fixtures are committed.
 
-### Known gaps before chat can be called production-ready
+## Roadmap
 
-- The streaming chat engine is implemented and unit-tested: a bounded incremental `SSEParser`, a tolerant `ChatCompletionsEventDecoder`, and `ChatModels`/`AgentEvent`.
-- The streaming `HermesChatClient`, turn coordinator, transcript, composer, Markdown renderer, and draft/retry/reconciliation behavior do not exist yet.
-- Connection probing has no injected `URLProtocol`/mock transport tests yet.
-- The current staged test does not include a lightweight streaming framing probe.
-- Network path and protected-data availability are not observed yet.
-- Capabilities are retained in memory after a successful test but are not restored across launches.
-- No `HermesUITests` target, local mock server, CI workflow, `.xcconfig`, or string catalog exists.
-- No SwiftData conversation cache exists.
-- No companion adapter or APNs relay has been implemented.
-- The app has not yet been validated against the actual Azure/Tailscale deployment.
-- The app has not yet been signed, installed, or runtime-tested on the physical iOS 27 public-beta target.
+The streaming primitives (`SSEParser`, `ChatCompletionsEventDecoder`, `ChatModels`/`AgentEvent`) are implemented and unit-tested. The next task is a streaming `HermesChatClient` that wires an injectable HTTP transport through the parser and decoder into an `AsyncThrowingStream<AgentEvent>`, followed by a turn coordinator, transcript, and composer.
 
-### Exact next development sequence
+Known gaps:
 
-The streaming chat engine (`SSEParser`, `ChatCompletionsEventDecoder`, and `ChatModels`/`AgentEvent`) is now implemented and unit-tested. The immediate next task is the streaming `HermesChatClient` that wires an injectable HTTP transport through the parser and decoder into an `AsyncThrowingStream<AgentEvent>`.
+- No streaming chat client, turn coordinator, transcript, composer, or Markdown renderer.
+- Connection probing has no injected `URLProtocol`/mock transport tests, and the staged test includes no streaming framing probe.
+- Network path and protected-data availability are not observed.
+- Capabilities are held in memory after a successful test but not restored across launches.
+- No `HermesUITests` target, local mock server, CI workflow, `.xcconfig`, or string catalog.
+- No SwiftData conversation cache.
+- No companion `/mobile/v1` adapter or APNs relay.
+- The app has not been signed, installed, or runtime-tested on the physical iOS 27 target.
 
-1. Commit the verified foundation as a clean checkpoint. The duplicate `Hermes/docs/` tree has been removed; root `docs/` is canonical.
-2. Unlock and trust the target iPhone, then perform a signed Debug install and smoke test on iOS 27.
-3. Record the deployed Hermes release/commit and capture sanitized `/health`, `/v1/models`, and streaming Chat Completions fixtures through the real Azure/Tailscale edge.
-4. Introduce an injectable HTTP transport and deterministic connection-test fixtures, including unauthorized, forbidden, TLS, malformed JSON, adapter-absent, and cancellation cases.
-5. Implement a bounded incremental `SSEParser` with LF/CRLF, multiline `data:`, UTF-8 chunk splits, heartbeat, `[DONE]`, malformed input, and size-limit tests.
-6. Add chat request/response DTOs and a typed OpenAI-compatible `HermesChatClient` for `POST /v1/chat/completions`.
-7. Normalize transport output into stable chat/agent events without trusting inline tool-progress prose.
-8. Implement a turn coordinator with generation guards, explicit local cancellation, acceptance tracking, and outcome-unknown handling that never automatically duplicates a remote turn.
-9. Build the native chat timeline and multiline composer with local draft safety, send/stop/retry states, text selection, and accessible streaming announcements.
-10. Add integration/UI/accessibility tests and run the first end-to-end streamed turn against staging.
-11. Only after stable chat, decide and begin the `/mobile/v1` companion adapter required for sessions, structured approvals, automations, and push events.
-
-The detailed acceptance criteria and later milestones remain in the [Delivery Plan](docs/DELIVERY_PLAN.md).
-
-## Product intent
-
-Hermes for iPhone is a chat-first remote control for one personal Hermes Agent. It should make the highest-value mobile workflows excellent: converse with the agent, follow streamed work, approve risky actions, inspect artifacts, resume sessions, launch background work, manage automations, and receive completion notifications.
-
-The user configures the server URL, username, and password in the app. The URL and username are stored as non-secret settings; the password is stored in iOS Keychain. The recommended Azure edge validates those Basic Auth credentials and injects the server-side `API_SERVER_KEY` expected by Hermes. The Hermes API key is never stored in the app or push service.
+Acceptance criteria and later milestones are in the [Delivery plan](docs/DELIVERY_PLAN.md).
 
 ## Documentation
 
@@ -219,9 +207,9 @@ The user configures the server URL, username, and password in the app. The URL a
 | [Quality strategy](docs/QUALITY_STRATEGY.md) | Unit, integration, UI, accessibility, performance, security, and release validation |
 | [Delivery plan](docs/DELIVERY_PLAN.md) | Milestones, work breakdown, exit criteria, risks, and decisions |
 
-## Confirmed upstream capabilities
+## Upstream Hermes capabilities
 
-The August 6, 2026 Hermes sources document these relevant capabilities:
+Hermes documents these capabilities, which the app surfaces progressively:
 
 - OpenAI-compatible Chat Completions and Responses APIs with SSE streaming.
 - Persistent sessions, lineage, full-text search, usage metrics, and context compression.
@@ -234,18 +222,23 @@ The August 6, 2026 Hermes sources document these relevant capabilities:
 
 Dashboard APIs are internal upstream interfaces and may change. The app therefore uses capability discovery and adapters instead of assuming that every installed Hermes release exposes every management endpoint.
 
-## Recommended deployment shape
+## Deployment shape
+
+The reference deployment publishes both Hermes surfaces through one Tailscale Service. `tailscale serve` is a pass-through reverse proxy and does not rewrite credentials:
 
 ```text
 iPhone app
   | HTTPS over active Tailscale tunnel
-  | Basic Auth: user-configured username/password
+  | Authorization: Bearer <API_SERVER_KEY>
   v
-Azure edge proxy (tailnet-only)
-  | validates Basic Auth
-  | injects Authorization: Bearer <API_SERVER_KEY>
+Tailscale Service :8443 (pass-through)
   v
-Hermes gateway API server :8642
+Hermes API server on 127.0.0.1:8642
+
+Browser
+  | HTTPS over the same tunnel, Basic Auth
+  v
+Tailscale Service :443 -> Hermes web dashboard
 
 Hermes completion/webhook
   | signed event; no Hermes credentials
@@ -255,6 +248,8 @@ Public Azure Push Relay
   v
 Apple Push Notification service -> iPhone
 ```
+
+A credential-translating edge that accepts Basic Auth and injects the bearer key upstream is also supported, and keeps the key off the phone entirely. The app uses the same fields either way.
 
 Direct chat remains private to the tailnet. Only minimal notification metadata reaches the public relay; notification previews default to generic text.
 
@@ -268,7 +263,7 @@ Direct chat remains private to the tailnet. Only minimal notification metadata r
 - Destructive and high-impact remote actions always require clear confirmation.
 - Every upstream feature is capability-gated and degrades to an understandable unavailable state.
 
-## Current project facts
+## Project facts
 
 - Project: `Hermes.xcodeproj`
 - App target: `Hermes`
@@ -291,4 +286,4 @@ The minimum supported iOS version and whether iPad remains in the first release 
 - [CLI guide](https://hermes-agent.nousresearch.com/docs/user-guide/cli)
 - [Voice mode guide](https://hermes-agent.nousresearch.com/docs/user-guide/features/voice-mode)
 
-Research baseline: upstream `main` and official documentation as observed on August 6, 2026. Pin the deployed Hermes release during implementation and update the compatibility matrix before shipping.
+Pin the deployed Hermes release during implementation and update the compatibility matrix before shipping.

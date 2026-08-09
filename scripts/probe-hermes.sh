@@ -120,11 +120,14 @@ case "$MODELS_CODE" in
     printf '   final body   : %s\n\n' "${fprev:-(empty)}"
     case "$furl $fctype" in
       *html*|*login*|*auth*|*oauth*|*sso*)
-        echo "This lands on an HTML/login page. The endpoint uses redirect-based auth"
-        echo "(cookie / SSO / Tailscale identity), which the app cannot use as an API"
-        echo "credential. The OpenAI-compatible API server is a different origin — commonly"
-        echo "the same host on port 8642, or a proxy route that forwards to the API server"
-        echo "WITHOUT the login redirect." ;;
+        echo "This lands on an HTML/login page, so this origin is the web dashboard, not"
+        echo "the API server. Redirect-based auth (cookie / SSO / Tailscale identity)"
+        echo "cannot be used as an API credential."
+        echo
+        echo "The OpenAI-compatible API server is a different origin. In the reference"
+        echo "Azure deployment the Tailscale Service publishes it on port 8443, so retry"
+        echo "with --url https://<same-host>:8443. The API server's own port (8642) is"
+        echo "bound to loopback and is not reachable from a client." ;;
       *json*)
         echo "After following redirects it returned JSON. The app also follows same-host"
         echo "HTTPS redirects, so this URL may work once the credential is accepted." ;;
