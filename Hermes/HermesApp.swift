@@ -9,9 +9,16 @@ import SwiftUI
 
 @main
 struct HermesApp: App {
+    @State private var appModel: AppModel
+
+    init() {
+        _appModel = State(initialValue: AppModel(environment: .production()))
+    }
+
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            RootView(appModel: appModel)
+                .preferredColorScheme(.dark)
         }
     }
 }

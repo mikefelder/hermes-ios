@@ -1,0 +1,13 @@
+# macOS
+.DS_Store
+
+# Xcode user state
+xcuserdata/
+*.xcuserstate
+
+# Build output
+build/
+DerivedData/
+design/app-icons/source-masters-1254/hermes-orbital-engraved.png
+design/app-icons/source-masters-1254/hermes-luminous-agent.png
+design/app-icons/hermes-luminous-agent.png
