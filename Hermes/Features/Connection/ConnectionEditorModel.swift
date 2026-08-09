@@ -13,7 +13,7 @@ final class ConnectionEditorModel {
         }
     }
     var isPasswordVisible = false
-    private(set) var hasSavedPassword: Bool
+    private(set) var hasStoredCredential: Bool
     private(set) var isTesting = false
     private(set) var isSaving = false
     private(set) var checks: [ConnectionCheck] = []
@@ -26,13 +26,27 @@ final class ConnectionEditorModel {
     private var testedProfile: ServerProfile?
     private var passwordRevision = 0
 
+    /// Username the stored secret was saved under, so a switch between Basic and
+    /// Bearer never reuses a credential meant for the other mode.
+    private var credentialUsername: String?
+
     init(appModel: AppModel, profile: ServerProfile? = nil) {
         self.appModel = appModel
         self.originalProfile = profile
         self.name = profile?.name ?? "Hermes"
         self.urlText = profile?.baseURL.absoluteString ?? ""
         self.username = profile?.username ?? ""
-        self.hasSavedPassword = profile != nil
+        self.hasStoredCredential = profile != nil
+        self.credentialUsername = profile?.username
+    }
+
+    var hasSavedPassword: Bool {
+        hasStoredCredential && !authenticationModeChanged
+    }
+
+    private var authenticationModeChanged: Bool {
+        guard let credentialUsername else { return false }
+        return !HermesAuthorization.sameMode(username, credentialUsername)
     }
 
     var canTest: Bool {
@@ -88,7 +102,8 @@ final class ConnectionEditorModel {
             capabilities: testedCapabilities
         )
         password = ""
-        hasSavedPassword = true
+        hasStoredCredential = true
+        credentialUsername = profile.username
         testedFingerprint = currentFingerprint
     }
 
@@ -113,13 +128,16 @@ final class ConnectionEditorModel {
 
     private func passwordForTest(profile: ServerProfile) async throws -> String {
         if !password.isEmpty { return password }
+        guard !authenticationModeChanged else {
+            throw CredentialStoreError.invalidPassword
+        }
         guard originalProfile?.id == profile.id,
               let saved = try await appModel.environment.credentialStore.password(for: profile.id),
               !saved.isEmpty else {
-            hasSavedPassword = false
+            hasStoredCredential = false
             throw CredentialStoreError.invalidPassword
         }
-        hasSavedPassword = true
+        hasStoredCredential = true
         return saved
     }
 

@@ -32,4 +32,16 @@ struct HermesAuthorizationTests {
     func basicTrimsUsername() {
         #expect(HermesAuthorization.headerValue(username: " user ", secret: "p@ss:word") == "Basic dXNlcjpwQHNzOndvcmQ=")
     }
+
+    @Test("Usernames selecting the same authentication mode compare as equal")
+    func sameModeMatches() {
+        #expect(HermesAuthorization.sameMode("", "  ") == true)
+        #expect(HermesAuthorization.sameMode("mike", "hermes") == true)
+    }
+
+    @Test("Switching between a blank and a present username changes mode")
+    func sameModeDetectsSwitch() {
+        #expect(HermesAuthorization.sameMode("", "hermes") == false)
+        #expect(HermesAuthorization.sameMode("hermes", "   ") == false)
+    }
 }

@@ -20,7 +20,12 @@ struct ConnectionFormView: View {
     }
 
     private var secretDetail: String {
-        usesBearer
+        if model.hasStoredCredential && !model.hasSavedPassword {
+            return usesBearer
+                ? "The saved password does not apply to an API key. Enter your Hermes API key."
+                : "The saved API key does not apply to a password. Enter your password."
+        }
+        return usesBearer
             ? "Your Hermes API key, sent as a Bearer token. Stored only in this iPhone's Keychain."
             : "Stored only in this iPhone's Keychain"
     }

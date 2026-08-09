@@ -33,6 +33,11 @@ nonisolated enum HermesAuthorization {
     static func usesBearer(username: String) -> Bool {
         username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
+
+    /// Whether two usernames select the same authentication mode.
+    static func sameMode(_ lhs: String, _ rhs: String) -> Bool {
+        usesBearer(username: lhs) == usesBearer(username: rhs)
+    }
 }
 
 struct HermesHTTPResponse: Sendable {
