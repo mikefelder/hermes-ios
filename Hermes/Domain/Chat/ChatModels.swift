@@ -36,12 +36,16 @@ nonisolated struct ChatMessage: Identifiable, Codable, Sendable, Equatable {
 /// Concrete transports (Chat Completions SSE today, Responses/JSON-RPC later)
 /// decode into this stable enum. Views and coordinators only consume `AgentEvent`.
 nonisolated enum AgentEvent: Sendable, Equatable {
+    /// The server acknowledged the turn and issued an identifier for it. Receiving
+    /// this is what makes a send "accepted", so a later drop is recoverable rather
+    /// than ambiguous.
+    case turnAccepted(id: String)
     /// The assistant message has started; carries the advertised role.
     case messageStarted(role: ChatRole)
     /// An incremental text fragment for the active assistant message.
     case textDelta(String)
     /// The model reported a terminal finish reason for the turn (e.g. `stop`, `length`).
     case finished(reason: String?)
-    /// The stream signalled completion via its terminator (e.g. Chat Completions `[DONE]`).
+    /// The stream signalled completion via its terminator.
     case done
 }

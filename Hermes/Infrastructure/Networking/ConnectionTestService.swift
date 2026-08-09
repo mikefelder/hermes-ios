@@ -130,26 +130,34 @@ struct ConnectionTestService: ConnectionTesting, Sendable {
         )
 
         do {
-            let adapterResponse = try await client.get("mobile/v1/capabilities")
-            if adapterResponse.statusCode == 404 {
-                continuation.yield(.check(.init(stage: .capabilities, state: .passed("Chat API available; mobile adapter not installed"))))
-            } else {
-                try requireSuccess(adapterResponse.statusCode)
-                if let adapter = try? JSONSerialization.jsonObject(with: adapterResponse.data) as? [String: Any] {
-                    capabilities.supportsMobileAdapter = true
-                    capabilities.supportsResponses = (adapter["responses"] as? Bool) ?? false
-                    capabilities.observedVersion = (adapter["hermes_version"] as? String) ?? healthVersion
-                }
-                continuation.yield(.check(.init(stage: .capabilities, state: .passed("Mobile adapter available"))))
-            }
-        } catch let error as HermesConnectionError where error == .unavailable(404) {
-            continuation.yield(.check(.init(stage: .capabilities, state: .passed("Chat API available; mobile adapter not installed"))))
+            let response = try await client.get("v1/capabilities")
+            try requireSuccess(response.statusCode)
+            let document = try JSONDecoder().decode(HermesCapabilityDocument.self, from: response.data)
+            capabilities = capabilities.merging(document, version: healthVersion, models: models)
+            continuation.yield(.check(.init(
+                stage: .capabilities,
+                state: .passed(summary(of: capabilities))
+            )))
         } catch {
-            continuation.yield(.check(.init(stage: .capabilities, state: .passed("Chat API available; optional capability check unavailable"))))
+            // An older build without the discovery endpoint still supports chat.
+            continuation.yield(.check(.init(
+                stage: .capabilities,
+                state: .passed("Chat available; this server does not advertise capabilities")
+            )))
         }
 
         continuation.yield(.completed(capabilities))
         continuation.finish()
+    }
+
+    /// A short, user-facing summary of the richer surfaces this server offers.
+    private func summary(of capabilities: ServerCapabilities) -> String {
+        var available: [String] = []
+        if capabilities.supportsResponses { available.append("structured responses") }
+        if capabilities.supportsSessions { available.append("sessions") }
+        if capabilities.supportsRunApproval { available.append("approvals") }
+        guard !available.isEmpty else { return "Chat available" }
+        return "Chat, " + available.joined(separator: ", ")
     }
 
     private func requireSuccess(_ statusCode: Int) throws {

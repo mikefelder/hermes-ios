@@ -118,6 +118,14 @@ struct ServerCapabilities: Codable, Equatable, Sendable {
     var observedVersion: String?
     var models: [String]
     var checkedAt: Date
+    var supportsSessions: Bool = false
+    var supportsRunApproval: Bool = false
+    var supportsToolProgress: Bool = false
+    /// Header the server uses to continue a transcript, e.g. `X-Hermes-Session-Id`.
+    var sessionContinuityHeader: String?
+
+    /// Whether a turn can be continued server-side instead of resending history.
+    var supportsServerSideContinuity: Bool { supportsResponses || supportsSessions }
 
     static let unknown = ServerCapabilities(
         supportsChatCompletions: false,

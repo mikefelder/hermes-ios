@@ -26,6 +26,12 @@ final class ChatConversationModel {
     private var flush: Task<Void, Never>?
     private let flushInterval = Duration.milliseconds(50)
 
+    /// Last response the server acknowledged, used to continue the chain instead
+    /// of resending the transcript.
+    private(set) var previousResponseID: String?
+    /// Set once the server acknowledges the turn; before that a drop is ambiguous.
+    private(set) var isAccepted = false
+
     init(appModel: AppModel) {
         self.appModel = appModel
     }
@@ -64,12 +70,14 @@ final class ChatConversationModel {
         messages.removeAll()
         streamingText = ""
         errorMessage = nil
+        previousResponseID = nil
     }
 
     private func start() {
         generation &+= 1
         let generation = generation
         isStreaming = true
+        isAccepted = false
         streamingText = ""
 
         turn = Task { [weak self] in
@@ -82,9 +90,16 @@ final class ChatConversationModel {
                     throw CredentialStoreError.invalidPassword
                 }
 
-                let stream = appModel.environment.chatClient.stream(
+                let capabilities = appModel.capabilities
+                let request = ChatTurnRequest(
                     messages: messages,
-                    model: appModel.capabilities.models.first,
+                    model: capabilities.models.first,
+                    wireProtocol: capabilities.supportsResponses ? .responses : .chatCompletions,
+                    previousResponseID: capabilities.supportsResponses ? previousResponseID : nil
+                )
+
+                let stream = appModel.environment.chatClient.stream(
+                    request,
                     profile: profile,
                     password: password
                 )
@@ -104,9 +119,13 @@ final class ChatConversationModel {
 
     private func apply(_ event: AgentEvent) {
         switch event {
+        case let .turnAccepted(id):
+            isAccepted = true
+            previousResponseID = id
         case .messageStarted:
-            break
+            isAccepted = true
         case let .textDelta(text):
+            isAccepted = true
             enqueue(text)
         case .finished:
             break

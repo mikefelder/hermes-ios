@@ -45,15 +45,12 @@ struct HermesChatClientTests {
 
     private func collect(
         _ client: HermesChatClient,
-        profile: ServerProfile
+        profile: ServerProfile,
+        request: ChatTurnRequest? = nil
     ) async throws -> [AgentEvent] {
+        let turn = request ?? ChatTurnRequest(messages: [ChatMessage(role: .user, content: "hi")])
         var events: [AgentEvent] = []
-        for try await event in client.stream(
-            messages: [ChatMessage(role: .user, content: "hi")],
-            model: nil,
-            profile: profile,
-            password: "sk-test"
-        ) {
+        for try await event in client.stream(turn, profile: profile, password: "sk-test") {
             events.append(event)
         }
         return events
@@ -164,5 +161,79 @@ struct HermesChatClientTests {
         #expect(messages.count == 1)
         #expect(messages.first?["role"] as? String == "user")
         #expect(messages.first?["content"] as? String == "hi")
+    }
+
+    @Test("A Responses turn posts to /v1/responses and seeds the chain with history")
+    func buildsResponsesRequest() async throws {
+        let recorder = RequestRecorder()
+        let client = HermesChatClient(transport: StubTransport(
+            chunks: [#"data: {"type":"response.completed","response":{"status":"completed"}}"# + "\n\n"],
+            recorder: recorder
+        ))
+
+        _ = try await collect(client, profile: try profile(), request: ChatTurnRequest(
+            messages: [
+                ChatMessage(role: .user, content: "first"),
+                ChatMessage(role: .assistant, content: "reply"),
+                ChatMessage(role: .user, content: "second")
+            ],
+            wireProtocol: .responses
+        ))
+
+        let request = await recorder.request
+        #expect(request?.url?.absoluteString == "https://hermes.example.ts.net:8443/v1/responses")
+
+        let body = try #require(request?.httpBody)
+        let json = try #require(try JSONSerialization.jsonObject(with: body) as? [String: Any])
+        #expect(json["stream"] as? Bool == true)
+        #expect(json["previous_response_id"] == nil)
+        #expect((json["input"] as? [[String: Any]])?.count == 3)
+    }
+
+    @Test("A continued Responses turn sends only the newest message")
+    func continuesWithPreviousResponseID() async throws {
+        let recorder = RequestRecorder()
+        let client = HermesChatClient(transport: StubTransport(
+            chunks: [#"data: {"type":"response.completed","response":{"status":"completed"}}"# + "\n\n"],
+            recorder: recorder
+        ))
+
+        _ = try await collect(client, profile: try profile(), request: ChatTurnRequest(
+            messages: [
+                ChatMessage(role: .user, content: "first"),
+                ChatMessage(role: .assistant, content: "reply"),
+                ChatMessage(role: .user, content: "second")
+            ],
+            wireProtocol: .responses,
+            previousResponseID: "resp_abc"
+        ))
+
+        let body = try #require(await recorder.request?.httpBody)
+        let json = try #require(try JSONSerialization.jsonObject(with: body) as? [String: Any])
+        #expect(json["previous_response_id"] as? String == "resp_abc")
+        let input = try #require(json["input"] as? [[String: Any]])
+        #expect(input.count == 1)
+        #expect(input.first?["content"] as? String == "second")
+    }
+
+    @Test("A Responses stream decodes through to acceptance and completion")
+    func streamsResponsesProtocol() async throws {
+        let client = HermesChatClient(transport: StubTransport(chunks: [
+            "event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_1\"}}\n\n",
+            "event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"OK\"}\n\n",
+            "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\"}}\n\n"
+        ]))
+
+        let events = try await collect(client, profile: try profile(), request: ChatTurnRequest(
+            messages: [ChatMessage(role: .user, content: "hi")],
+            wireProtocol: .responses
+        ))
+
+        #expect(events == [
+            .turnAccepted(id: "resp_1"),
+            .textDelta("OK"),
+            .finished(reason: "completed"),
+            .done
+        ])
     }
 }

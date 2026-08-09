@@ -61,7 +61,7 @@ final class AppModel {
 
         activeProfile = profile
         self.capabilities = capabilities
-        connectionState = capabilities.supportsMobileAdapter ? .connected : .degraded
+        connectionState = capabilities.supportsSessions ? .connected : .degraded
     }
 
     func forgetServer() async throws {

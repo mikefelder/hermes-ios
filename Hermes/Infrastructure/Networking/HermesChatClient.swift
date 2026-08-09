@@ -15,11 +15,39 @@ protocol StreamingTransport: Sendable {
     func stream(_ request: URLRequest) async throws -> StreamingResponse
 }
 
+/// Which wire protocol a turn uses.
+nonisolated enum ChatWireProtocol: Sendable, Equatable {
+    /// Preferred. Exposes structured items and server-side continuity.
+    case responses
+    /// Universal fallback. Stateless, so the full transcript is resent each turn.
+    case chatCompletions
+}
+
+/// One turn's request, independent of transport.
+nonisolated struct ChatTurnRequest: Sendable {
+    var messages: [ChatMessage]
+    var model: String?
+    var wireProtocol: ChatWireProtocol
+    /// When set, the server reconstructs history and only the newest message is sent.
+    var previousResponseID: String?
+
+    init(
+        messages: [ChatMessage],
+        model: String? = nil,
+        wireProtocol: ChatWireProtocol = .chatCompletions,
+        previousResponseID: String? = nil
+    ) {
+        self.messages = messages
+        self.model = model
+        self.wireProtocol = wireProtocol
+        self.previousResponseID = previousResponseID
+    }
+}
+
 /// Streams an assistant turn as transport-independent ``AgentEvent``s.
 protocol ChatStreaming: Sendable {
     func stream(
-        messages: [ChatMessage],
-        model: String?,
+        _ request: ChatTurnRequest,
         profile: ServerProfile,
         password: String
     ) -> AsyncThrowingStream<AgentEvent, Error>
@@ -32,15 +60,15 @@ protocol ChatStreaming: Sendable {
 /// structured tool metadata or as an approval.
 nonisolated struct HermesChatClient: ChatStreaming {
     private let transport: any StreamingTransport
-    private let decoder = ChatCompletionsEventDecoder()
+    private let chatCompletions = ChatCompletionsEventDecoder()
+    private let responses = ResponsesEventDecoder()
 
     init(transport: any StreamingTransport = URLSessionStreamingTransport()) {
         self.transport = transport
     }
 
     func stream(
-        messages: [ChatMessage],
-        model: String?,
+        _ request: ChatTurnRequest,
         profile: ServerProfile,
         password: String
     ) -> AsyncThrowingStream<AgentEvent, Error> {
@@ -48,8 +76,7 @@ nonisolated struct HermesChatClient: ChatStreaming {
             let task = Task {
                 do {
                     try await run(
-                        messages: messages,
-                        model: model,
+                        request,
                         profile: profile,
                         password: password,
                         continuation: continuation
@@ -70,18 +97,12 @@ nonisolated struct HermesChatClient: ChatStreaming {
     }
 
     private func run(
-        messages: [ChatMessage],
-        model: String?,
+        _ turn: ChatTurnRequest,
         profile: ServerProfile,
         password: String,
         continuation: AsyncThrowingStream<AgentEvent, Error>.Continuation
     ) async throws {
-        let request = try makeRequest(
-            messages: messages,
-            model: model,
-            profile: profile,
-            password: password
-        )
+        let request = try makeRequest(turn, profile: profile, password: password)
         let response = try await transport.stream(request)
 
         // A redirect that left the configured origin must never be consumed, even
@@ -98,7 +119,7 @@ nonisolated struct HermesChatClient: ChatStreaming {
         for try await chunk in response.bytes {
             try Task.checkCancellation()
             for event in try parser.consume(chunk) {
-                for agentEvent in decoder.decode(event) {
+                for agentEvent in decode(event, using: turn.wireProtocol) {
                     continuation.yield(agentEvent)
                     if agentEvent == .done { return }
                 }
@@ -106,13 +127,20 @@ nonisolated struct HermesChatClient: ChatStreaming {
         }
     }
 
+    private func decode(_ event: SSEEvent, using wireProtocol: ChatWireProtocol) -> [AgentEvent] {
+        switch wireProtocol {
+        case .responses: responses.decode(event)
+        case .chatCompletions: chatCompletions.decode(event)
+        }
+    }
+
     private func makeRequest(
-        messages: [ChatMessage],
-        model: String?,
+        _ turn: ChatTurnRequest,
         profile: ServerProfile,
         password: String
     ) throws -> URLRequest {
-        let url = try HermesEndpoint.url(base: profile.baseURL, path: "v1/chat/completions")
+        let path = turn.wireProtocol == .responses ? "v1/responses" : "v1/chat/completions"
+        let url = try HermesEndpoint.url(base: profile.baseURL, path: path)
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
@@ -121,16 +149,58 @@ nonisolated struct HermesChatClient: ChatStreaming {
             HermesAuthorization.headerValue(username: profile.username, secret: password),
             forHTTPHeaderField: "Authorization"
         )
-        request.httpBody = try JSONEncoder().encode(
-            ChatCompletionsRequest(
-                model: model,
-                stream: true,
-                messages: messages.map {
-                    ChatCompletionsRequest.Message(role: $0.role.rawValue, content: $0.content)
-                }
-            )
-        )
+        request.httpBody = try body(for: turn)
         return request
+    }
+
+    private func body(for turn: ChatTurnRequest) throws -> Data {
+        let encoder = JSONEncoder()
+        switch turn.wireProtocol {
+        case .responses:
+            // With a prior response the server rebuilds history, so only the newest
+            // message is sent. Without one the whole transcript seeds the chain.
+            let input = turn.previousResponseID == nil
+                ? turn.messages
+                : Array(turn.messages.suffix(1))
+            return try encoder.encode(
+                ResponsesRequest(
+                    model: turn.model,
+                    stream: true,
+                    previousResponseID: turn.previousResponseID,
+                    input: input.map { ResponsesRequest.Message(role: $0.role.rawValue, content: $0.content) }
+                )
+            )
+        case .chatCompletions:
+            return try encoder.encode(
+                ChatCompletionsRequest(
+                    model: turn.model,
+                    stream: true,
+                    messages: turn.messages.map {
+                        ChatCompletionsRequest.Message(role: $0.role.rawValue, content: $0.content)
+                    }
+                )
+            )
+        }
+    }
+}
+
+/// Wire model for the Responses request body.
+private nonisolated struct ResponsesRequest: Encodable {
+    struct Message: Encodable {
+        let role: String
+        let content: String
+    }
+
+    let model: String?
+    let stream: Bool
+    let previousResponseID: String?
+    let input: [Message]
+
+    enum CodingKeys: String, CodingKey {
+        case model
+        case stream
+        case previousResponseID = "previous_response_id"
+        case input
     }
 }
 
