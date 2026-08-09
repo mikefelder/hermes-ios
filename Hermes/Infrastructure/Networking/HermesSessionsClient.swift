@@ -2,11 +2,20 @@ import Foundation
 
 /// Reads session resources from the API server so an ambiguous turn can be
 /// resolved against the server's own transcript rather than guessed at.
-nonisolated struct HermesSessionsClient: TranscriptReconciling {
+nonisolated struct HermesSessionsClient: SessionServicing {
     private let timeout: TimeInterval
 
     init(timeout: TimeInterval = 15) {
         self.timeout = timeout
+    }
+
+    func createSession(profile: ServerProfile, password: String) async throws -> SessionSummary {
+        let response = try await HermesHTTPClient(profile: profile, password: password, timeout: timeout)
+            .post("api/sessions", body: Data("{}".utf8))
+        guard (200..<300).contains(response.statusCode) else {
+            throw HermesConnectionError.from(statusCode: response.statusCode)
+        }
+        return try JSONDecoder().decode(SessionEnvelope.self, from: response.data).session
     }
 
     func session(id: String, profile: ServerProfile, password: String) async throws -> SessionSummary {

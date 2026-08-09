@@ -21,13 +21,13 @@ nonisolated enum TurnUpdate: Sendable, Equatable {
 /// work.
 actor ChatTurnCoordinator {
     private let chatClient: any ChatStreaming
-    private let reconciler: (any TranscriptReconciling)?
+    private let reconciler: (any SessionServicing)?
 
     private var active: Task<Void, Never>?
     /// Stale events from a superseded turn are discarded by comparing generations.
     private var generation = UUID()
 
-    init(chatClient: any ChatStreaming, reconciler: (any TranscriptReconciling)? = nil) {
+    init(chatClient: any ChatStreaming, reconciler: (any SessionServicing)? = nil) {
         self.chatClient = chatClient
         self.reconciler = reconciler
     }

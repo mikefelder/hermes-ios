@@ -22,12 +22,16 @@ private struct ScriptedChatClient: ChatStreaming {
 }
 
 /// Serves a session list that can differ before and after a turn.
-private actor ScriptedReconciler: TranscriptReconciling {
+private actor ScriptedReconciler: SessionServicing {
     private var pages: [[SessionSummary]]
     private(set) var callCount = 0
 
     init(pages: [[SessionSummary]]) {
         self.pages = pages
+    }
+
+    func createSession(profile: ServerProfile, password: String) async throws -> SessionSummary {
+        throw HermesConnectionError.unavailable(404)
     }
 
     func session(id: String, profile: ServerProfile, password: String) async throws -> SessionSummary {

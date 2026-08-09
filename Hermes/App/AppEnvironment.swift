@@ -5,7 +5,7 @@ struct AppEnvironment: Sendable {
     let credentialStore: any CredentialStoring
     let connectionTester: any ConnectionTesting
     let chatClient: any ChatStreaming
-    let sessionsClient: (any TranscriptReconciling)?
+    let sessionsClient: (any SessionServicing)?
     let capabilityDiscovery: (any CapabilityDiscovering)?
     let pendingWork: any PendingWorkStoring
     let logger: HermesLogger

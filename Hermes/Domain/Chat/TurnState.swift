@@ -69,8 +69,14 @@ nonisolated struct SessionListPage: Decodable, Sendable {
     }
 }
 
-/// Answers whether an ambiguous turn actually reached the server.
-protocol TranscriptReconciling: Sendable {
+nonisolated struct SessionEnvelope: Decodable, Sendable {
+    var session: SessionSummary
+}
+
+/// Reads and creates the agent's sessions, and answers whether an ambiguous turn
+/// actually reached the server.
+protocol SessionServicing: Sendable {
+    func createSession(profile: ServerProfile, password: String) async throws -> SessionSummary
     func session(id: String, profile: ServerProfile, password: String) async throws -> SessionSummary
     func sessions(limit: Int, profile: ServerProfile, password: String) async throws -> [SessionSummary]
     func messages(sessionID: String, limit: Int, profile: ServerProfile, password: String) async throws -> [SessionMessage]

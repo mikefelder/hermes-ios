@@ -103,7 +103,6 @@ final class ChatConversationModel {
         errorMessage = nil
         lastPrompt = prompt
         messages.append(ChatMessage(role: .user, content: prompt))
-        recordPendingTurn(prompt: prompt)
         start()
     }
 
@@ -157,6 +156,9 @@ final class ChatConversationModel {
                 }
 
                 let capabilities = appModel.capabilities
+                await bindSessionIfNeeded(capabilities: capabilities, profile: profile, password: password)
+                if let prompt = lastPrompt { recordPendingTurn(prompt: prompt) }
+
                 let request = ChatTurnRequest(
                     messages: messages,
                     model: capabilities.models.first,
@@ -172,6 +174,24 @@ final class ChatConversationModel {
                 guard generation == self.generation else { return }
                 fail(error)
             }
+        }
+    }
+
+    /// Create the server session up front so a new conversation is visible to the
+    /// web dashboard and the terminal UI from its first message.
+    private func bindSessionIfNeeded(
+        capabilities: ServerCapabilities,
+        profile: ServerProfile,
+        password: String
+    ) async {
+        guard sessionID == nil,
+              capabilities.supportsSessions,
+              let client = appModel.environment.sessionsClient else { return }
+        do {
+            sessionID = try await client.createSession(profile: profile, password: password).id
+        } catch {
+            // A stateless protocol still works; the turn just will not be session-bound.
+            appModel.environment.logger.error("Session creation failed", code: "session_create")
         }
     }
 

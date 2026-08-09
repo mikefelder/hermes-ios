@@ -130,11 +130,23 @@ final class HermesHTTPClient: @unchecked Sendable {
     }
 
     func get(_ endpoint: String) async throws -> HermesHTTPResponse {
+        try await send(endpoint, method: "GET", body: nil)
+    }
+
+    func post(_ endpoint: String, body: Data?) async throws -> HermesHTTPResponse {
+        try await send(endpoint, method: "POST", body: body)
+    }
+
+    private func send(_ endpoint: String, method: String, body: Data?) async throws -> HermesHTTPResponse {
         let url = try endpointURL(endpoint)
         var request = URLRequest(url: url)
-        request.httpMethod = "GET"
+        request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue(authorizationHeader, forHTTPHeaderField: "Authorization")
+        if let body {
+            request.httpBody = body
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        }
 
         do {
             let (data, response) = try await session.data(for: request)

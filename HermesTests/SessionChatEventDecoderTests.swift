@@ -129,4 +129,16 @@ struct SessionModelsTests {
 
         #expect(messages.asTranscript().isEmpty)
     }
+
+    @Test("A created session decodes from its envelope")
+    func decodesCreatedSession() throws {
+        let envelope = try JSONDecoder().decode(SessionEnvelope.self, from: Data(#"""
+        {"object":"hermes.session","session":{"id":"api_1786318375_ee2e9b69","source":"api_server",
+         "model":"hermes-agent","title":null,"message_count":0,"tool_call_count":0}}
+        """#.utf8))
+
+        #expect(envelope.session.id == "api_1786318375_ee2e9b69")
+        #expect(envelope.session.messageCount == 0)
+        #expect(envelope.session.source == "api_server")
+    }
 }
