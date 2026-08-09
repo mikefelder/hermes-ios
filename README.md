@@ -2,7 +2,7 @@
 
 A native SwiftUI companion for a self-hosted [Nous Research Hermes Agent](https://github.com/NousResearch/hermes-agent). The app is designed for a Hermes instance running on Azure and reachable from the iPhone over Tailscale.
 
-Connection settings, the secure app foundation, and the streaming primitives are implemented. Reliable streamed chat is the next milestone; sessions, automations, media, and push are not started.
+Connection settings, the secure app foundation, and streaming chat are implemented and verified against a live deployment on a physical device. Conversation persistence, Markdown rendering, and turn reconciliation are next; sessions, automations, media, and push are not started.
 
 ## Product intent
 
@@ -52,7 +52,8 @@ scripts/probe-hermes.sh --url https://hermes.example.ts.net:8443 --key "$HERMES_
 - Proposed credentials are tested before replacing a working profile.
 - Forget Server removes the profile metadata and its Keychain secret.
 - The app shows connection state and discovered chat/mobile-adapter capabilities.
-- Chat, Sessions, Automations, and Settings tabs are present; only Settings and connection onboarding are functional. The other product areas intentionally contain milestone placeholders.
+- Chat streams an assistant turn token by token over `POST /v1/chat/completions`, with a live transcript, a stop control that keeps partial text, and a new-conversation action.
+- Sessions and Automations tabs contain milestone placeholders; conversations are held in memory and clear on relaunch.
 - App content is covered whenever the scene is inactive to reduce app-switcher exposure.
 - Four brand app icons ship in the asset catalog (Orbital Seal is the default; Luminous Agent, Orbital Engraved, and Signal Mark are alternates), switchable at runtime in Settings → Appearance → App Icon. Source masters live in `design/app-icons/` outside the app bundle.
 
@@ -179,18 +180,27 @@ If a connected physical iPhone is locked, Xcode may repeatedly log failure to st
 
 ## Roadmap
 
-The streaming primitives (`SSEParser`, `ChatCompletionsEventDecoder`, `ChatModels`/`AgentEvent`) are implemented and unit-tested. The next task is a streaming `HermesChatClient` that wires an injectable HTTP transport through the parser and decoder into an `AsyncThrowingStream<AgentEvent>`, followed by a turn coordinator, transcript, and composer.
+Streaming chat works end to end: `HermesChatClient` drives `SSEParser` and
+`ChatCompletionsEventDecoder` through an injectable transport, and
+`ChatConversationModel` coordinates a turn with a generation guard. The next
+work is conversation persistence, Markdown rendering, and reconciling a turn
+whose outcome is unknown after a dropped stream.
+
+Because Chat Completions is stateless, every turn resends the full transcript on
+top of the agent's own system context. Moving to `POST /v1/responses` with
+`previous_response_id`, or to the session-based adapter, is the main lever for
+keeping long conversations affordable.
 
 Known gaps:
 
-- No streaming chat client, turn coordinator, transcript, composer, or Markdown renderer.
+- No Markdown renderer; assistant text renders as plain selectable text.
+- No draft safety, retry, or outcome-unknown reconciliation after a dropped turn.
 - Connection probing has no injected `URLProtocol`/mock transport tests, and the staged test includes no streaming framing probe.
 - Network path and protected-data availability are not observed.
-- Capabilities are held in memory after a successful test but not restored across launches.
+- Capabilities are held in memory after a successful test but not restored across launches, so the model name is omitted and Hermes picks its default.
 - No `HermesUITests` target, local mock server, CI workflow, `.xcconfig`, or string catalog.
 - No SwiftData conversation cache.
 - No companion `/mobile/v1` adapter or APNs relay.
-- The app has not been signed, installed, or runtime-tested on the physical iOS 27 target.
 
 Acceptance criteria and later milestones are in the [Delivery plan](docs/DELIVERY_PLAN.md).
 
