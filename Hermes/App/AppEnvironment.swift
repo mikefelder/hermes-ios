@@ -6,6 +6,7 @@ struct AppEnvironment: Sendable {
     let connectionTester: any ConnectionTesting
     let chatClient: any ChatStreaming
     let sessionsClient: (any TranscriptReconciling)?
+    let capabilityDiscovery: (any CapabilityDiscovering)?
     let logger: HermesLogger
 
     static func production() -> AppEnvironment {
@@ -15,6 +16,7 @@ struct AppEnvironment: Sendable {
             connectionTester: ConnectionTestService(),
             chatClient: HermesChatClient(),
             sessionsClient: HermesSessionsClient(),
+            capabilityDiscovery: HermesCapabilitiesClient(),
             logger: HermesLogger(category: "app")
         )
     }

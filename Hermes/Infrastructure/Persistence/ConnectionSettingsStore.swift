@@ -4,6 +4,9 @@ protocol ConnectionSettingsStoring: Sendable {
     func loadProfile() async throws -> ServerProfile?
     func save(profile: ServerProfile) async throws
     func deleteProfile() async throws
+    func loadCapabilities() async -> ServerCapabilities?
+    func save(capabilities: ServerCapabilities) async
+    func deleteCapabilities() async
 }
 
 enum ConnectionSettingsError: LocalizedError {
@@ -21,6 +24,7 @@ enum ConnectionSettingsError: LocalizedError {
 final class ConnectionSettingsStore: ConnectionSettingsStoring, @unchecked Sendable {
     private let defaults: UserDefaults
     private let profileKey = "activeServerProfile.v1"
+    private let capabilitiesKey = "serverCapabilities.v1"
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -45,5 +49,21 @@ final class ConnectionSettingsStore: ConnectionSettingsStoring, @unchecked Senda
 
     func deleteProfile() {
         defaults.removeObject(forKey: profileKey)
+    }
+
+    /// The snapshot is a convenience for launch; it is refreshed from the server
+    /// and carries no secret material.
+    func loadCapabilities() -> ServerCapabilities? {
+        guard let data = defaults.data(forKey: capabilitiesKey) else { return nil }
+        return try? JSONDecoder().decode(ServerCapabilities.self, from: data)
+    }
+
+    func save(capabilities: ServerCapabilities) {
+        guard let data = try? JSONEncoder().encode(capabilities) else { return }
+        defaults.set(data, forKey: capabilitiesKey)
+    }
+
+    func deleteCapabilities() {
+        defaults.removeObject(forKey: capabilitiesKey)
     }
 }

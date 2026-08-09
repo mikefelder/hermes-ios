@@ -20,12 +20,31 @@ final class AppModel {
         defer { isRestoring = false }
         do {
             activeProfile = try await environment.settingsStore.loadProfile()
+            capabilities = await environment.settingsStore.loadCapabilities() ?? .unknown
             connectionState = activeProfile == nil ? .notConfigured : .offline
         } catch {
             presentedError = error.localizedDescription
             activeProfile = nil
             connectionState = .notConfigured
             environment.logger.error("Profile restoration failed", code: "profile_restore")
+        }
+        await refreshCapabilities()
+    }
+
+    /// Re-read what the server supports. Capabilities drive protocol selection and
+    /// which features are offered, so a stale snapshot silently degrades the app.
+    func refreshCapabilities() async {
+        guard let profile = activeProfile,
+              let discovery = environment.capabilityDiscovery else { return }
+        do {
+            guard let password = try await passwordForActiveProfile(), !password.isEmpty else { return }
+            let document = try await discovery.capabilities(profile: profile, password: password)
+            let refreshed = capabilities.merging(document, version: capabilities.observedVersion, models: capabilities.models)
+            capabilities = refreshed
+            await environment.settingsStore.save(capabilities: refreshed)
+            connectionState = refreshed.supportsSessions ? .connected : .degraded
+        } catch {
+            environment.logger.error("Capability refresh failed", code: "capability_refresh")
         }
     }
 
@@ -61,6 +80,7 @@ final class AppModel {
 
         activeProfile = profile
         self.capabilities = capabilities
+        await environment.settingsStore.save(capabilities: capabilities)
         connectionState = capabilities.supportsSessions ? .connected : .degraded
     }
 
@@ -68,6 +88,7 @@ final class AppModel {
         guard let profile = activeProfile else { return }
         try await environment.credentialStore.deletePassword(for: profile.id)
         try await environment.settingsStore.deleteProfile()
+        await environment.settingsStore.deleteCapabilities()
         activeProfile = nil
         capabilities = .unknown
         connectionState = .notConfigured
