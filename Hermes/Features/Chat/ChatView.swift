@@ -11,6 +11,7 @@ struct ChatView: View {
             composer
         }
         .navigationTitle(appModel.activeProfile?.name ?? "Hermes")
+        .task { await conversation.restorePendingWork() }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {

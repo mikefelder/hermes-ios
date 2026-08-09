@@ -12,7 +12,12 @@ final class ChatConversationModel {
     private(set) var messages: [ChatMessage] = []
     /// Text accumulated for the in-flight assistant turn, rendered as a live bubble.
     private(set) var streamingText = ""
-    var draft = ""
+    var draft = "" {
+        didSet {
+            guard oldValue != draft else { return }
+            scheduleDraftSave()
+        }
+    }
     var errorMessage: String?
 
     private let appModel: AppModel
@@ -37,6 +42,9 @@ final class ChatConversationModel {
     private(set) var sessionID: String?
     private(set) var activeToolName: String?
     private(set) var isLoadingTranscript = false
+    /// Turn recorded before network I/O, cleared once the outcome is known.
+    private var pendingTurn: PendingTurn?
+    private var draftSave: Task<Void, Never>?
 
     init(appModel: AppModel) {
         self.appModel = appModel
@@ -95,6 +103,7 @@ final class ChatConversationModel {
         errorMessage = nil
         lastPrompt = prompt
         messages.append(ChatMessage(role: .user, content: prompt))
+        recordPendingTurn(prompt: prompt)
         start()
     }
 
@@ -175,6 +184,84 @@ final class ChatConversationModel {
         return capabilities.supportsResponses ? .responses : .chatCompletions
     }
 
+    // MARK: - Pending work
+
+    /// Restore an unsent draft and resolve any turn left in flight by a previous
+    /// launch. A turn interrupted by termination is reconciling, never failed.
+    func restorePendingWork() async {
+        let work = await appModel.environment.pendingWork.load()
+        if draft.isEmpty {
+            draft = work.draft
+            draftSave?.cancel()
+            draftSave = nil
+        }
+        if let sessionID = work.draftSessionID, self.sessionID == nil {
+            self.sessionID = sessionID
+        }
+        guard let interrupted = work.uncertainTurns.first else { return }
+        turnState = .reconciling
+        turnState = await resolve(interrupted)
+        if case .failed = turnState { lastPrompt = interrupted.prompt }
+        await persistPendingWork(turns: [])
+    }
+
+    /// Ask the server whether an interrupted turn actually landed.
+    private func resolve(_ turn: PendingTurn) async -> TurnState {
+        guard let sessionID = turn.sessionID,
+              let reconciler = appModel.environment.sessionsClient,
+              let profile = appModel.activeProfile,
+              let password = try? await appModel.passwordForActiveProfile(),
+              let stored = try? await reconciler.messages(
+                  sessionID: sessionID,
+                  limit: 50,
+                  profile: profile,
+                  password: password
+              )
+        else {
+            errorMessage = """
+                A message was interrupted before Hermes confirmed it. \
+                The agent may have run it, so it was not sent again.
+                """
+            return .outcomeUnknown
+        }
+
+        if stored.contains(where: { $0.role == "user" && $0.content == turn.prompt }) {
+            messages = stored.asTranscript()
+            return .completed
+        }
+        errorMessage = "A message was interrupted before it reached Hermes. You can send it again."
+        return .failed("The turn did not reach Hermes.")
+    }
+
+    private func recordPendingTurn(prompt: String) {
+        let turn = PendingTurn(sessionID: sessionID, prompt: prompt)
+        pendingTurn = turn
+        Task { await persistPendingWork(turns: [turn]) }
+    }
+
+    private func clearPendingTurn() {
+        guard pendingTurn != nil else { return }
+        pendingTurn = nil
+        Task { await persistPendingWork(turns: []) }
+    }
+
+    private func scheduleDraftSave() {
+        draftSave?.cancel()
+        draftSave = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(400))
+            guard let self, !Task.isCancelled else { return }
+            await persistPendingWork(turns: pendingTurn.map { [$0] } ?? [])
+        }
+    }
+
+    private func persistPendingWork(turns: [PendingTurn]) async {
+        await appModel.environment.pendingWork.save(PendingWork(
+            draft: draft,
+            draftSessionID: sessionID,
+            uncertainTurns: turns
+        ))
+    }
+
     private func apply(_ update: TurnUpdate) {
         switch update {
         case let .accepted(responseID):
@@ -193,12 +280,15 @@ final class ChatConversationModel {
         turnState = state
         switch state {
         case .completed, .stopping:
+            clearPendingTurn()
             finish()
         case let .failed(message):
+            clearPendingTurn()
             commitStreamedText()
             errorMessage = message
             turn = nil
         case .outcomeUnknown:
+            clearPendingTurn()
             commitStreamedText()
             errorMessage = """
                 The connection dropped and Hermes did not confirm the outcome. \
@@ -248,8 +338,7 @@ final class ChatConversationModel {
         appModel.environment.logger.error("Chat turn failed", code: "chat_turn")
     }
 
-    private func commitStreamedText() {
-        flush?.cancel()
+    private func commitStreamedText() {        flush?.cancel()
         flush = nil
         drainPendingDelta()
         let text = streamingText.trimmingCharacters(in: .whitespacesAndNewlines)

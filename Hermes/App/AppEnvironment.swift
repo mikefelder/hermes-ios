@@ -7,6 +7,7 @@ struct AppEnvironment: Sendable {
     let chatClient: any ChatStreaming
     let sessionsClient: (any TranscriptReconciling)?
     let capabilityDiscovery: (any CapabilityDiscovering)?
+    let pendingWork: any PendingWorkStoring
     let logger: HermesLogger
 
     static func production() -> AppEnvironment {
@@ -17,6 +18,7 @@ struct AppEnvironment: Sendable {
             chatClient: HermesChatClient(),
             sessionsClient: HermesSessionsClient(),
             capabilityDiscovery: HermesCapabilitiesClient(),
+            pendingWork: PendingWorkStore(),
             logger: HermesLogger(category: "app")
         )
     }
