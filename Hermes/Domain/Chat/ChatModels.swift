@@ -44,6 +44,8 @@ nonisolated enum AgentEvent: Sendable, Equatable {
     case messageStarted(role: ChatRole)
     /// An incremental text fragment for the active assistant message.
     case textDelta(String)
+    /// A server-side tool is running. Display only; the client never executes tools.
+    case toolActivity(name: String)
     /// The model reported a terminal finish reason for the turn (e.g. `stop`, `length`).
     case finished(reason: String?)
     /// The stream signalled completion via its terminator.

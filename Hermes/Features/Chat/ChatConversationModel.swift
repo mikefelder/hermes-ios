@@ -32,6 +32,11 @@ final class ChatConversationModel {
     private(set) var turnState: TurnState = .idle
     /// Retained so a turn that provably never started can be resent on request.
     private var lastPrompt: String?
+    /// Server session this conversation is bound to. When set, the transcript is
+    /// shared with every other Hermes client.
+    private(set) var sessionID: String?
+    private(set) var activeToolName: String?
+    private(set) var isLoadingTranscript = false
 
     init(appModel: AppModel) {
         self.appModel = appModel
@@ -57,6 +62,30 @@ final class ChatConversationModel {
 
     var isEmpty: Bool {
         messages.isEmpty && streamingText.isEmpty
+    }
+
+    /// Open a server session and replace the transcript with its stored history.
+    func open(sessionID: String) async {
+        guard let reconciler = appModel.environment.sessionsClient,
+              let profile = appModel.activeProfile else { return }
+        stop()
+        isLoadingTranscript = true
+        defer { isLoadingTranscript = false }
+        self.sessionID = sessionID
+        previousResponseID = nil
+        errorMessage = nil
+        do {
+            let password = try await appModel.passwordForActiveProfile() ?? ""
+            let stored = try await reconciler.messages(
+                sessionID: sessionID,
+                limit: 200,
+                profile: profile,
+                password: password
+            )
+            messages = stored.asTranscript()
+        } catch {
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
     }
 
     func send() {
@@ -98,6 +127,7 @@ final class ChatConversationModel {
         errorMessage = nil
         previousResponseID = nil
         lastPrompt = nil
+        sessionID = nil
         turnState = .idle
     }
 
@@ -121,7 +151,7 @@ final class ChatConversationModel {
                 let request = ChatTurnRequest(
                     messages: messages,
                     model: capabilities.models.first,
-                    wireProtocol: capabilities.supportsResponses ? .responses : .chatCompletions,
+                    wireProtocol: wireProtocol(for: capabilities),
                     previousResponseID: capabilities.supportsResponses ? previousResponseID : nil
                 )
 
@@ -136,12 +166,24 @@ final class ChatConversationModel {
         }
     }
 
+    /// Prefer a session-bound turn so the transcript stays shared with the web UI
+    /// and TUI; fall back to stateless protocols when sessions are unavailable.
+    private func wireProtocol(for capabilities: ServerCapabilities) -> ChatWireProtocol {
+        if let sessionID, capabilities.supportsSessions {
+            return .sessionChat(sessionID: sessionID)
+        }
+        return capabilities.supportsResponses ? .responses : .chatCompletions
+    }
+
     private func apply(_ update: TurnUpdate) {
         switch update {
         case let .accepted(responseID):
             if let responseID { previousResponseID = responseID }
         case let .delta(text):
+            activeToolName = nil
             enqueue(text)
+        case let .toolActivity(name):
+            activeToolName = name
         case let .state(state):
             apply(state)
         }
@@ -189,6 +231,7 @@ final class ChatConversationModel {
 
     private func finish() {
         commitStreamedText()
+        activeToolName = nil
         turn = nil
     }
 

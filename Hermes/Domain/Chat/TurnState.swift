@@ -73,4 +73,5 @@ nonisolated struct SessionListPage: Decodable, Sendable {
 protocol TranscriptReconciling: Sendable {
     func session(id: String, profile: ServerProfile, password: String) async throws -> SessionSummary
     func sessions(limit: Int, profile: ServerProfile, password: String) async throws -> [SessionSummary]
+    func messages(sessionID: String, limit: Int, profile: ServerProfile, password: String) async throws -> [SessionMessage]
 }

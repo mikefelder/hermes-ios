@@ -38,6 +38,15 @@ private actor ScriptedReconciler: TranscriptReconciling {
         defer { callCount += 1 }
         return pages[min(callCount, pages.count - 1)]
     }
+
+    func messages(
+        sessionID: String,
+        limit: Int,
+        profile: ServerProfile,
+        password: String
+    ) async throws -> [SessionMessage] {
+        []
+    }
 }
 
 private func summary(id: String, messageCount: Int, preview: String? = nil) -> SessionSummary {

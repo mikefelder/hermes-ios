@@ -26,4 +26,18 @@ nonisolated struct HermesSessionsClient: TranscriptReconciling {
         }
         return try JSONDecoder().decode(SessionListPage.self, from: response.data).data.prefix(limit).map { $0 }
     }
+
+    func messages(
+        sessionID: String,
+        limit: Int,
+        profile: ServerProfile,
+        password: String
+    ) async throws -> [SessionMessage] {
+        let response = try await HermesHTTPClient(profile: profile, password: password, timeout: timeout)
+            .get("api/sessions/\(sessionID)/messages")
+        guard (200..<300).contains(response.statusCode) else {
+            throw HermesConnectionError.from(statusCode: response.statusCode)
+        }
+        return try JSONDecoder().decode(SessionMessagePage.self, from: response.data).data
+    }
 }

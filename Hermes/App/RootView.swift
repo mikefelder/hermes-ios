@@ -41,21 +41,31 @@ struct RootView: View {
 struct MainTabView: View {
     @Bindable var appModel: AppModel
 
+    @State private var selectedTab = Tab.chat
+    @State private var conversation: ChatConversationModel?
+
+    private enum Tab: Hashable {
+        case chat, sessions, automations, settings
+    }
+
     var body: some View {
-        TabView {
+        TabView(selection: $selectedTab) {
             NavigationStack {
-                ChatView(appModel: appModel)
+                if let conversation {
+                    ChatView(appModel: appModel, conversation: conversation)
+                }
             }
             .tabItem { Label("Chat", systemImage: "message") }
+            .tag(Tab.chat)
 
             NavigationStack {
-                FeaturePlaceholderView(
-                    title: "Sessions",
-                    symbol: "clock.arrow.circlepath",
-                    message: "Persistent session browsing arrives in the next development milestone."
-                )
+                SessionsView(appModel: appModel) { sessionID in
+                    selectedTab = .chat
+                    Task { await conversation?.open(sessionID: sessionID) }
+                }
             }
             .tabItem { Label("Sessions", systemImage: "clock.arrow.circlepath") }
+            .tag(Tab.sessions)
 
             NavigationStack {
                 FeaturePlaceholderView(
@@ -65,15 +75,22 @@ struct MainTabView: View {
                 )
             }
             .tabItem { Label("Automations", systemImage: "calendar.badge.clock") }
+            .tag(Tab.automations)
 
             NavigationStack {
                 SettingsView(appModel: appModel)
             }
             .tabItem { Label("Settings", systemImage: "gearshape") }
+            .tag(Tab.settings)
         }
         .tint(HermesTheme.textPrimary)
         .toolbarBackground(HermesTheme.canvas, for: .tabBar)
         .toolbarBackground(.visible, for: .tabBar)
+        .onAppear {
+            if conversation == nil {
+                conversation = ChatConversationModel(appModel: appModel)
+            }
+        }
     }
 }
 

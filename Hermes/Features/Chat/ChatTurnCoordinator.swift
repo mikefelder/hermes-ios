@@ -4,6 +4,8 @@ import Foundation
 nonisolated enum TurnUpdate: Sendable, Equatable {
     case state(TurnState)
     case delta(String)
+    /// A server-side tool is running, for display only.
+    case toolActivity(String)
     /// The server acknowledged the turn; carries a continuation ID when the
     /// protocol provides one.
     case accepted(responseID: String?)
@@ -98,6 +100,8 @@ actor ChatTurnCoordinator {
                         continuation.yield(.state(.streaming))
                     }
                     continuation.yield(.delta(text))
+                case let .toolActivity(name):
+                    continuation.yield(.toolActivity(name))
                 case .finished:
                     break
                 case .done:

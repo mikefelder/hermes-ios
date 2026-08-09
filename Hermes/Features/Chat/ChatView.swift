@@ -2,13 +2,8 @@ import SwiftUI
 
 struct ChatView: View {
     @Bindable var appModel: AppModel
-    @State private var conversation: ChatConversationModel
+    @Bindable var conversation: ChatConversationModel
     @FocusState private var isComposerFocused: Bool
-
-    init(appModel: AppModel) {
-        self.appModel = appModel
-        _conversation = State(initialValue: ChatConversationModel(appModel: appModel))
-    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -45,7 +40,7 @@ struct ChatView: View {
                         ChatBubble(role: .assistant, text: conversation.streamingText)
                             .id(streamingAnchor)
                     } else if conversation.isStreaming {
-                        TypingIndicator()
+                        TypingIndicator(toolName: conversation.activeToolName)
                             .id(streamingAnchor)
                     }
                     if let errorMessage = conversation.errorMessage {
@@ -180,14 +175,16 @@ private struct ChatBubble: View {
 }
 
 private struct TypingIndicator: View {
+    var toolName: String?
+
     var body: some View {
         HStack(spacing: HermesSpacing.small) {
             ProgressView().tint(HermesTheme.textSecondary)
-            Text("Hermes is working…")
+            Text(toolName.map { "Running \($0)…" } ?? "Hermes is working…")
                 .font(.callout)
                 .foregroundStyle(HermesTheme.textSecondary)
         }
         .padding(HermesSpacing.medium)
-        .accessibilityLabel("Hermes is responding")
+        .accessibilityLabel(toolName.map { "Hermes is running \($0)" } ?? "Hermes is responding")
     }
 }

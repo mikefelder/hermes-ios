@@ -17,7 +17,10 @@ protocol StreamingTransport: Sendable {
 
 /// Which wire protocol a turn uses.
 nonisolated enum ChatWireProtocol: Sendable, Equatable {
-    /// Preferred. Exposes structured items and server-side continuity.
+    /// Preferred for a conversation bound to a server session, so the transcript
+    /// is shared with every other Hermes client.
+    case sessionChat(sessionID: String)
+    /// Exposes structured items and server-side continuity without a session.
     case responses
     /// Universal fallback. Stateless, so the full transcript is resent each turn.
     case chatCompletions
@@ -62,6 +65,7 @@ nonisolated struct HermesChatClient: ChatStreaming {
     private let transport: any StreamingTransport
     private let chatCompletions = ChatCompletionsEventDecoder()
     private let responses = ResponsesEventDecoder()
+    private let sessionChat = SessionChatEventDecoder()
 
     init(transport: any StreamingTransport = URLSessionStreamingTransport()) {
         self.transport = transport
@@ -129,6 +133,7 @@ nonisolated struct HermesChatClient: ChatStreaming {
 
     private func decode(_ event: SSEEvent, using wireProtocol: ChatWireProtocol) -> [AgentEvent] {
         switch wireProtocol {
+        case .sessionChat: sessionChat.decode(event)
         case .responses: responses.decode(event)
         case .chatCompletions: chatCompletions.decode(event)
         }
@@ -139,7 +144,11 @@ nonisolated struct HermesChatClient: ChatStreaming {
         profile: ServerProfile,
         password: String
     ) throws -> URLRequest {
-        let path = turn.wireProtocol == .responses ? "v1/responses" : "v1/chat/completions"
+        let path = switch turn.wireProtocol {
+        case let .sessionChat(sessionID): "api/sessions/\(sessionID)/chat/stream"
+        case .responses: "v1/responses"
+        case .chatCompletions: "v1/chat/completions"
+        }
         let url = try HermesEndpoint.url(base: profile.baseURL, path: path)
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -156,6 +165,10 @@ nonisolated struct HermesChatClient: ChatStreaming {
     private func body(for turn: ChatTurnRequest) throws -> Data {
         let encoder = JSONEncoder()
         switch turn.wireProtocol {
+        case .sessionChat:
+            // The server owns the transcript, so only the new message is sent.
+            return try encoder.encode(SessionChatRequest(message: turn.messages.last?.content ?? ""))
+
         case .responses:
             // With a prior response the server rebuilds history, so only the newest
             // message is sent. Without one the whole transcript seeds the chain.
@@ -182,6 +195,11 @@ nonisolated struct HermesChatClient: ChatStreaming {
             )
         }
     }
+}
+
+/// Wire model for the session-scoped chat request body.
+private nonisolated struct SessionChatRequest: Encodable {
+    let message: String
 }
 
 /// Wire model for the Responses request body.
