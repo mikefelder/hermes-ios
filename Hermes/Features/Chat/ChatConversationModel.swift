@@ -20,6 +20,12 @@ final class ChatConversationModel {
     private var turn: Task<Void, Never>?
     private var generation = 0
 
+    /// Deltas are batched before touching observable state; re-rendering and
+    /// re-parsing Markdown per token is what makes long streams stutter.
+    private var pendingDelta = ""
+    private var flush: Task<Void, Never>?
+    private let flushInterval = Duration.milliseconds(50)
+
     init(appModel: AppModel) {
         self.appModel = appModel
     }
@@ -101,12 +107,30 @@ final class ChatConversationModel {
         case .messageStarted:
             break
         case let .textDelta(text):
-            streamingText += text
+            enqueue(text)
         case .finished:
             break
         case .done:
             finish()
         }
+    }
+
+    private func enqueue(_ text: String) {
+        pendingDelta += text
+        guard flush == nil else { return }
+        let generation = generation
+        flush = Task { [weak self] in
+            try? await Task.sleep(for: self?.flushInterval ?? .milliseconds(50))
+            guard let self, generation == self.generation else { return }
+            flush = nil
+            drainPendingDelta()
+        }
+    }
+
+    private func drainPendingDelta() {
+        guard !pendingDelta.isEmpty else { return }
+        streamingText += pendingDelta
+        pendingDelta = ""
     }
 
     private func finish() {
@@ -125,6 +149,9 @@ final class ChatConversationModel {
     }
 
     private func commitStreamedText() {
+        flush?.cancel()
+        flush = nil
+        drainPendingDelta()
         let text = streamingText.trimmingCharacters(in: .whitespacesAndNewlines)
         streamingText = ""
         guard !text.isEmpty else { return }

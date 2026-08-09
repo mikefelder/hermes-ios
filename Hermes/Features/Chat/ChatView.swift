@@ -140,8 +140,7 @@ private struct ChatBubble: View {
     var body: some View {
         HStack {
             if isUser { Spacer(minLength: HermesSpacing.xLarge) }
-            Text(text)
-                .textSelection(.enabled)
+            content
                 .padding(HermesSpacing.medium)
                 .background(
                     isUser ? HermesTheme.agent.opacity(0.18) : HermesTheme.surface,
@@ -154,9 +153,20 @@ private struct ChatBubble: View {
                 .frame(maxWidth: .infinity, alignment: isUser ? .trailing : .leading)
             if !isUser { Spacer(minLength: HermesSpacing.xLarge) }
         }
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .contain)
         .accessibilityLabel(isUser ? "You said" : "Hermes said")
-        .accessibilityValue(text)
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if isUser {
+            Text(text)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        } else {
+            MarkdownMessageView(blocks: MarkdownParser().parse(text))
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 }
 
