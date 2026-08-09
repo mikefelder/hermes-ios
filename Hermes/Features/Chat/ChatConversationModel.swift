@@ -12,11 +12,11 @@ final class ChatConversationModel {
     private(set) var messages: [ChatMessage] = []
     /// Text accumulated for the in-flight assistant turn, rendered as a live bubble.
     private(set) var streamingText = ""
-    private(set) var isStreaming = false
     var draft = ""
     var errorMessage: String?
 
     private let appModel: AppModel
+    private let coordinator: ChatTurnCoordinator
     private var turn: Task<Void, Never>?
     private var generation = 0
 
@@ -29,12 +29,25 @@ final class ChatConversationModel {
     /// Last response the server acknowledged, used to continue the chain instead
     /// of resending the transcript.
     private(set) var previousResponseID: String?
-    /// Set once the server acknowledges the turn; before that a drop is ambiguous.
-    private(set) var isAccepted = false
+    private(set) var turnState: TurnState = .idle
+    /// Retained so a turn that provably never started can be resent on request.
+    private var lastPrompt: String?
 
     init(appModel: AppModel) {
         self.appModel = appModel
+        self.coordinator = ChatTurnCoordinator(
+            chatClient: appModel.environment.chatClient,
+            reconciler: appModel.environment.sessionsClient
+        )
     }
+
+    var isStreaming: Bool { turnState.isActive }
+
+    /// A turn is only resendable when it is known never to have reached Hermes.
+    var canRetry: Bool { turnState.allowsRetry && lastPrompt != nil }
+
+    /// True while the outcome of the last turn is genuinely undetermined.
+    var isOutcomeUnknown: Bool { turnState == .outcomeUnknown }
 
     var canSend: Bool {
         !isStreaming
@@ -51,18 +64,31 @@ final class ChatConversationModel {
         let prompt = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         draft = ""
         errorMessage = nil
+        lastPrompt = prompt
         messages.append(ChatMessage(role: .user, content: prompt))
         start()
     }
 
-    /// Stop the active turn, keeping whatever text already arrived.
+    /// Resend a turn that reconciliation proved never started.
+    func retry() {
+        guard canRetry, let prompt = lastPrompt else { return }
+        errorMessage = nil
+        if messages.last?.content != prompt || messages.last?.role != .user {
+            messages.append(ChatMessage(role: .user, content: prompt))
+        }
+        start()
+    }
+
+    /// Disconnect the local stream, keeping whatever text already arrived. This
+    /// does not stop work already running on the server.
     func stop() {
         guard isStreaming else { return }
         generation &+= 1
         turn?.cancel()
         turn = nil
+        Task { await coordinator.cancelActive() }
         commitStreamedText()
-        isStreaming = false
+        turnState = .completed
     }
 
     func clear() {
@@ -71,13 +97,14 @@ final class ChatConversationModel {
         streamingText = ""
         errorMessage = nil
         previousResponseID = nil
+        lastPrompt = nil
+        turnState = .idle
     }
 
     private func start() {
         generation &+= 1
         let generation = generation
-        isStreaming = true
-        isAccepted = false
+        turnState = .sending
         streamingText = ""
 
         turn = Task { [weak self] in
@@ -98,18 +125,10 @@ final class ChatConversationModel {
                     previousResponseID: capabilities.supportsResponses ? previousResponseID : nil
                 )
 
-                let stream = appModel.environment.chatClient.stream(
-                    request,
-                    profile: profile,
-                    password: password
-                )
-
-                for try await event in stream {
+                for await update in await coordinator.start(request, profile: profile, password: password) {
                     guard generation == self.generation else { return }
-                    apply(event)
+                    apply(update)
                 }
-                guard generation == self.generation else { return }
-                finish()
             } catch {
                 guard generation == self.generation else { return }
                 fail(error)
@@ -117,20 +136,36 @@ final class ChatConversationModel {
         }
     }
 
-    private func apply(_ event: AgentEvent) {
-        switch event {
-        case let .turnAccepted(id):
-            isAccepted = true
-            previousResponseID = id
-        case .messageStarted:
-            isAccepted = true
-        case let .textDelta(text):
-            isAccepted = true
+    private func apply(_ update: TurnUpdate) {
+        switch update {
+        case let .accepted(responseID):
+            if let responseID { previousResponseID = responseID }
+        case let .delta(text):
             enqueue(text)
-        case .finished:
-            break
-        case .done:
+        case let .state(state):
+            apply(state)
+        }
+    }
+
+    private func apply(_ state: TurnState) {
+        turnState = state
+        switch state {
+        case .completed, .stopping:
             finish()
+        case let .failed(message):
+            commitStreamedText()
+            errorMessage = message
+            turn = nil
+        case .outcomeUnknown:
+            commitStreamedText()
+            errorMessage = """
+                The connection dropped and Hermes did not confirm the outcome. \
+                The agent may still be working, so this was not sent again. \
+                Check your sessions before retrying.
+                """
+            turn = nil
+        default:
+            break
         }
     }
 
@@ -154,16 +189,19 @@ final class ChatConversationModel {
 
     private func finish() {
         commitStreamedText()
-        isStreaming = false
         turn = nil
     }
 
     private func fail(_ error: Error) {
         commitStreamedText()
-        isStreaming = false
         turn = nil
-        if case HermesConnectionError.cancelled = error { return }
-        errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        if case HermesConnectionError.cancelled = error {
+            turnState = .completed
+            return
+        }
+        let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        turnState = .failed(message)
+        errorMessage = message
         appModel.environment.logger.error("Chat turn failed", code: "chat_turn")
     }
 

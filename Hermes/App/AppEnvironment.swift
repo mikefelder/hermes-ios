@@ -5,6 +5,7 @@ struct AppEnvironment: Sendable {
     let credentialStore: any CredentialStoring
     let connectionTester: any ConnectionTesting
     let chatClient: any ChatStreaming
+    let sessionsClient: (any TranscriptReconciling)?
     let logger: HermesLogger
 
     static func production() -> AppEnvironment {
@@ -13,6 +14,7 @@ struct AppEnvironment: Sendable {
             credentialStore: KeychainCredentialStore(),
             connectionTester: ConnectionTestService(),
             chatClient: HermesChatClient(),
+            sessionsClient: HermesSessionsClient(),
             logger: HermesLogger(category: "app")
         )
     }

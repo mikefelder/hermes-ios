@@ -49,11 +49,20 @@ struct ChatView: View {
                             .id(streamingAnchor)
                     }
                     if let errorMessage = conversation.errorMessage {
-                        Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
-                            .font(.callout)
-                            .foregroundStyle(HermesTheme.warning)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .accessibilityIdentifier("chatError")
+                        VStack(alignment: .leading, spacing: HermesSpacing.small) {
+                            Label(errorMessage, systemImage: conversation.isOutcomeUnknown
+                                ? "questionmark.circle.fill"
+                                : "exclamationmark.triangle.fill")
+                                .font(.callout)
+                                .foregroundStyle(HermesTheme.warning)
+                            if conversation.canRetry {
+                                Button("Send again") { conversation.retry() }
+                                    .font(.callout.weight(.semibold))
+                                    .accessibilityIdentifier("chatRetryButton")
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityIdentifier("chatError")
                     }
                     Color.clear.frame(height: 1).id(bottomAnchor)
                 }
@@ -109,7 +118,7 @@ struct ChatView: View {
                     .foregroundStyle(HermesTheme.canvas)
             }
             .disabled(!conversation.isStreaming && !conversation.canSend)
-            .accessibilityLabel(conversation.isStreaming ? "Stop response" : "Send message")
+            .accessibilityLabel(conversation.isStreaming ? "Disconnect from response" : "Send message")
             .accessibilityIdentifier("chatSendButton")
         }
         .padding(HermesSpacing.standard)
