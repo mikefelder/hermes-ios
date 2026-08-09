@@ -306,7 +306,8 @@ Direct chat remains private to the tailnet. Only minimal notification metadata r
 
 ## Implementation principles
 
-- Native SwiftUI, Foundation networking, Swift Concurrency, Keychain, SwiftData, UserNotifications, and AVFoundation.
+- Native SwiftUI, Foundation networking, Swift Concurrency, Keychain, UserNotifications, and AVFoundation.
+- Hermes is the source of truth. Local storage covers only what the server cannot hold.
 - Chat correctness before broad administration features.
 - No private API keys in source control, `UserDefaults`, logs, analytics, crash reports, or notification payloads.
 - HTTPS required outside explicit debug builds; never bypass certificate validation.
