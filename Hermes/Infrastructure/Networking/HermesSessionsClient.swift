@@ -29,11 +29,11 @@ nonisolated struct HermesSessionsClient: SessionServicing {
 
     func sessions(limit: Int, profile: ServerProfile, password: String) async throws -> [SessionSummary] {
         let response = try await HermesHTTPClient(profile: profile, password: password, timeout: timeout)
-            .get("api/sessions")
+            .get("api/sessions", query: [URLQueryItem(name: "limit", value: String(min(limit, 200)))])
         guard (200..<300).contains(response.statusCode) else {
             throw HermesConnectionError.from(statusCode: response.statusCode)
         }
-        return try JSONDecoder().decode(SessionListPage.self, from: response.data).data.prefix(limit).map { $0 }
+        return try JSONDecoder().decode(SessionListPage.self, from: response.data).data
     }
 
     func messages(
@@ -42,8 +42,12 @@ nonisolated struct HermesSessionsClient: SessionServicing {
         profile: ServerProfile,
         password: String
     ) async throws -> [SessionMessage] {
+        // Without an explicit order the server returns the most recent page.
         let response = try await HermesHTTPClient(profile: profile, password: password, timeout: timeout)
-            .get("api/sessions/\(sessionID)/messages")
+            .get("api/sessions/\(sessionID)/messages", query: [
+                URLQueryItem(name: "limit", value: String(min(limit, 500))),
+                URLQueryItem(name: "order", value: "oldest")
+            ])
         guard (200..<300).contains(response.statusCode) else {
             throw HermesConnectionError.from(statusCode: response.statusCode)
         }

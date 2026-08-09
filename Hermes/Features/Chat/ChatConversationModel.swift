@@ -45,6 +45,9 @@ final class ChatConversationModel {
     /// Turn recorded before network I/O, cleared once the outcome is known.
     private var pendingTurn: PendingTurn?
     private var draftSave: Task<Void, Never>?
+    /// The server's version of the finished turn, applied in place of accumulated
+    /// deltas so tool results appear without a second request.
+    private var serverTranscript: [SessionMessage]?
 
     init(appModel: AppModel) {
         self.appModel = appModel
@@ -289,8 +292,10 @@ final class ChatConversationModel {
         case let .delta(text):
             activeToolName = nil
             enqueue(text)
-        case let .toolActivity(name):
-            activeToolName = name
+        case let .toolActivity(name, preview):
+            activeToolName = preview.map { "\(name): \($0)" } ?? name
+        case let .transcript(messages):
+            serverTranscript = messages
         case let .state(state):
             apply(state)
         }
@@ -358,9 +363,23 @@ final class ChatConversationModel {
         appModel.environment.logger.error("Chat turn failed", code: "chat_turn")
     }
 
-    private func commitStreamedText() {        flush?.cancel()
+    private func commitStreamedText() {
+        flush?.cancel()
         flush = nil
         drainPendingDelta()
+
+        // The server's transcript supersedes accumulated deltas: it also carries
+        // this turn's tool calls and their results.
+        if let transcript = serverTranscript {
+            serverTranscript = nil
+            let rendered = transcript.asTranscript()
+            if !rendered.isEmpty {
+                streamingText = ""
+                messages.append(contentsOf: rendered)
+                return
+            }
+        }
+
         let text = streamingText.trimmingCharacters(in: .whitespacesAndNewlines)
         streamingText = ""
         guard !text.isEmpty else { return }

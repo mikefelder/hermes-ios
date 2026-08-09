@@ -22,13 +22,19 @@ nonisolated struct SessionChatEventDecoder {
             guard let delta = payload?.delta, !delta.isEmpty else { return [] }
             return [.textDelta(delta)]
 
-        case "tool.progress":
-            // `_thinking` is reasoning rather than a tool, and is not transcript text.
-            guard let name = payload?.toolName, name != "_thinking" else { return [] }
-            return [.toolActivity(name: name)]
+        case "tool.started":
+            // `tool.progress` is deliberately ignored: its tool name is always the
+            // `_thinking` channel and its delta duplicates assistant text.
+            guard let name = payload?.toolName, !name.hasPrefix("_") else { return [] }
+            return [.toolActivity(name: name, preview: payload?.preview)]
 
         case "run.completed":
-            return [.finished(reason: "completed")]
+            // The server sends the turn's true transcript here, including tool
+            // results that no incremental event carries.
+            guard let messages = payload?.messages, !messages.isEmpty else {
+                return [.finished(reason: "completed")]
+            }
+            return [.transcript(messages), .finished(reason: "completed")]
 
         case "done":
             return [.done]
@@ -47,13 +53,17 @@ nonisolated struct SessionChatEventDecoder {
 private nonisolated struct SessionChatEvent: Decodable {
     var delta: String?
     var toolName: String?
+    var preview: String?
     var sessionID: String?
     var runID: String?
+    var messages: [SessionMessage]?
 
     enum CodingKeys: String, CodingKey {
         case delta
         case toolName = "tool_name"
+        case preview
         case sessionID = "session_id"
         case runID = "run_id"
+        case messages
     }
 }

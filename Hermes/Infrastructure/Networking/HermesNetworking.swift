@@ -5,7 +5,7 @@ import Foundation
 /// Shared by every Hermes client so endpoint construction and the same-origin rule
 /// have exactly one implementation.
 nonisolated enum HermesEndpoint {
-    static func url(base: URL, path: String) throws -> URL {
+    static func url(base: URL, path: String, query: [URLQueryItem] = []) throws -> URL {
         guard base.scheme?.lowercased() == "https", base.host != nil else {
             throw HermesConnectionError.invalidConfiguration("Hermes requires a valid HTTPS server URL.")
         }
@@ -16,7 +16,10 @@ nonisolated enum HermesEndpoint {
         guard isSameOrigin(base: base, url) else {
             throw HermesConnectionError.invalidConfiguration("The requested endpoint is outside the configured server.")
         }
-        return url
+        guard !query.isEmpty else { return url }
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return url }
+        components.queryItems = query
+        return components.url ?? url
     }
 
     static func isSameOrigin(base: URL, _ url: URL) -> Bool {

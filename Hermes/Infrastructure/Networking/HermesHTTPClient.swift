@@ -129,16 +129,21 @@ final class HermesHTTPClient: @unchecked Sendable {
         session.invalidateAndCancel()
     }
 
-    func get(_ endpoint: String) async throws -> HermesHTTPResponse {
-        try await send(endpoint, method: "GET", body: nil)
+    func get(_ endpoint: String, query: [URLQueryItem] = []) async throws -> HermesHTTPResponse {
+        try await send(endpoint, method: "GET", body: nil, query: query)
     }
 
     func post(_ endpoint: String, body: Data?) async throws -> HermesHTTPResponse {
-        try await send(endpoint, method: "POST", body: body)
+        try await send(endpoint, method: "POST", body: body, query: [])
     }
 
-    private func send(_ endpoint: String, method: String, body: Data?) async throws -> HermesHTTPResponse {
-        let url = try endpointURL(endpoint)
+    private func send(
+        _ endpoint: String,
+        method: String,
+        body: Data?,
+        query: [URLQueryItem]
+    ) async throws -> HermesHTTPResponse {
+        let url = try HermesEndpoint.url(base: profile.baseURL, path: endpoint, query: query)
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Accept")

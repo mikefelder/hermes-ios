@@ -30,24 +30,55 @@ struct SessionChatEventDecoderTests {
         #expect(events == [.textDelta("OK")])
     }
 
-    @Test("Tool progress surfaces the tool name for display")
-    func decodesToolProgress() {
+    @Test("A started tool surfaces its name and preview for display")
+    func decodesToolStarted() {
         let events = decoder.decode(event(
-            "tool.progress",
-            #"{"tool_name":"terminal","delta":"ls","session_id":"api-1"}"#
+            "tool.started",
+            #"{"tool_name":"terminal","preview":"date","args":{"command":"date"},"session_id":"api-1"}"#
         ))
 
-        #expect(events == [.toolActivity(name: "terminal")])
+        #expect(events == [.toolActivity(name: "terminal", preview: "date")])
     }
 
-    @Test("Internal reasoning is not reported as a tool")
-    func ignoresThinkingPseudoTool() {
+    @Test("Progress events are ignored because they duplicate assistant text")
+    func ignoresToolProgress() {
         let events = decoder.decode(event(
             "tool.progress",
             #"{"tool_name":"_thinking","delta":"OK"}"#
         ))
 
         #expect(events.isEmpty)
+    }
+
+    @Test("Internal tools are never shown as work")
+    func ignoresInternalTools() {
+        let events = decoder.decode(event(
+            "tool.started",
+            #"{"tool_name":"_thinking","preview":"reasoning"}"#
+        ))
+
+        #expect(events.isEmpty)
+    }
+
+    @Test("run.completed carries the turn transcript before finishing")
+    func decodesTurnTranscript() {
+        let events = decoder.decode(event(
+            "run.completed",
+            #"{"session_id":"api-1","messages":[{"id":9,"role":"assistant","content":"done"}]}"#
+        ))
+
+        #expect(events.count == 2)
+        if case let .transcript(messages) = events.first {
+            #expect(messages.first?.content == "done")
+        } else {
+            Issue.record("expected a transcript event")
+        }
+        #expect(events.last == .finished(reason: "completed"))
+    }
+
+    @Test("run.completed without a transcript still finishes the turn")
+    func decodesBareCompletion() {
+        #expect(decoder.decode(event("run.completed", #"{"session_id":"api-1"}"#)) == [.finished(reason: "completed")])
     }
 
     @Test("done terminates the turn")
