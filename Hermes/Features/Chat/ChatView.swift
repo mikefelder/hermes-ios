@@ -115,14 +115,14 @@ struct ChatView: View {
                     conversation.send()
                 }
             } label: {
-                Image(systemName: conversation.isStreaming ? "stop.fill" : "arrow.up")
+                Image(systemName: stopSymbol)
                     .font(.headline)
                     .frame(width: 44, height: 44)
                     .background(sendBackground, in: Circle())
                     .foregroundStyle(HermesTheme.canvas)
             }
             .disabled(!conversation.isStreaming && !conversation.canSend)
-            .accessibilityLabel(conversation.isStreaming ? "Disconnect from response" : "Send message")
+            .accessibilityLabel(stopLabel)
             .accessibilityIdentifier("chatSendButton")
         }
         .padding(HermesSpacing.standard)
@@ -132,6 +132,18 @@ struct ChatView: View {
     private var sendBackground: Color {
         if conversation.isStreaming { return HermesTheme.warning }
         return conversation.canSend ? HermesTheme.agent : HermesTheme.border
+    }
+
+    /// A square means the agent is actually interrupted; a cross means only this
+    /// connection closes and the agent keeps working.
+    private var stopSymbol: String {
+        guard conversation.isStreaming else { return "arrow.up" }
+        return conversation.canStopRemoteWork ? "stop.fill" : "xmark"
+    }
+
+    private var stopLabel: String {
+        guard conversation.isStreaming else { return "Send message" }
+        return conversation.canStopRemoteWork ? "Stop Hermes" : "Disconnect, Hermes keeps working"
     }
 
     private var streamingAnchor: String { "streaming" }

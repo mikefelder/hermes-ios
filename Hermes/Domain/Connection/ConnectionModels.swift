@@ -120,6 +120,7 @@ struct ServerCapabilities: Codable, Equatable, Sendable {
     var checkedAt: Date
     var supportsSessions: Bool = false
     var supportsRunApproval: Bool = false
+    var supportsRunStop: Bool = false
     var supportsToolProgress: Bool = false
     /// Header the server uses to continue a transcript, e.g. `X-Hermes-Session-Id`.
     var sessionContinuityHeader: String?

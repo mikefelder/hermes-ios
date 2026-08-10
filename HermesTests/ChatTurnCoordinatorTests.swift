@@ -69,6 +69,8 @@ private struct ScriptedRunService: RunServicing {
     func status(runID: String, profile: ServerProfile, password: String) async throws -> RunStatus {
         runStatus
     }
+
+    func stop(runID: String, profile: ServerProfile, password: String) async throws {}
 }
 
 private func summary(id: String, messageCount: Int, preview: String? = nil) -> SessionSummary {

@@ -14,6 +14,7 @@ nonisolated struct HermesCapabilityDocument: Decodable, Sendable {
         var sessionResources: Bool?
         var sessionChatStreaming: Bool?
         var runApprovalResponse: Bool?
+        var runStop: Bool?
         var toolProgressEvents: Bool?
         var sessionContinuityHeader: String?
 
@@ -25,6 +26,7 @@ nonisolated struct HermesCapabilityDocument: Decodable, Sendable {
             case sessionResources = "session_resources"
             case sessionChatStreaming = "session_chat_streaming"
             case runApprovalResponse = "run_approval_response"
+            case runStop = "run_stop"
             case toolProgressEvents = "tool_progress_events"
             case sessionContinuityHeader = "session_continuity_header"
         }
@@ -47,6 +49,7 @@ extension ServerCapabilities {
         merged.supportsResponses = (features?.responsesStreaming ?? features?.responsesAPI) ?? false
         merged.supportsSessions = features?.sessionResources ?? false
         merged.supportsRunApproval = features?.runApprovalResponse ?? false
+        merged.supportsRunStop = features?.runStop ?? false
         merged.supportsToolProgress = features?.toolProgressEvents ?? false
         merged.sessionContinuityHeader = features?.sessionContinuityHeader
         merged.observedVersion = version ?? observedVersion

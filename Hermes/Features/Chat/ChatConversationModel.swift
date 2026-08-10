@@ -50,6 +50,10 @@ final class ChatConversationModel {
     private var serverTranscript: [SessionMessage]?
     /// A complete session transcript, which supersedes the whole conversation.
     private var replacementTranscript: [SessionMessage]?
+    /// Run backing the active turn, when the runs transport is in use.
+    private(set) var activeRunID: String?
+    /// Wire protocol the active turn was started with.
+    private var activeWireProtocol: ChatWireProtocol?
     /// Retained locally because a dropped run stream cannot replay this payload.
     private(set) var pendingApproval: ApprovalRequest?
     private var isRespondingToApproval = false
@@ -85,6 +89,12 @@ final class ChatConversationModel {
         !isStreaming
             && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && appModel.activeProfile != nil
+    }
+
+    /// Whether the control interrupts the agent or merely closes the connection.
+    /// The server only offers cancellation for runs.
+    var canStopRemoteWork: Bool {
+        activeRunID != nil && appModel.capabilities.supportsRunStop
     }
 
     var isEmpty: Bool {
@@ -135,10 +145,33 @@ final class ChatConversationModel {
         start()
     }
 
-    /// Disconnect the local stream, keeping whatever text already arrived. This
-    /// does not stop work already running on the server.
+    /// Stop the turn. When the server can cancel the run, ask it to; otherwise
+    /// only the local connection closes and the agent keeps working.
     func stop() {
         guard isStreaming else { return }
+        if canStopRemoteWork {
+            Task { await stopRemoteWork() }
+            return
+        }
+        disconnect()
+    }
+
+    private func stopRemoteWork() async {
+        guard let runID = activeRunID,
+              let responder = appModel.environment.approvals,
+              let profile = appModel.activeProfile else { return disconnect() }
+        do {
+            let password = try await appModel.passwordForActiveProfile() ?? ""
+            try await responder.stop(runID: runID, profile: profile, password: password)
+            // The server answers with run.cancelled, which ends the stream.
+        } catch {
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            disconnect()
+        }
+    }
+
+    /// Close the local stream, keeping whatever text already arrived.
+    private func disconnect() {
         generation &+= 1
         turn?.cancel()
         turn = nil
@@ -163,6 +196,7 @@ final class ChatConversationModel {
         let generation = generation
         turnState = .sending
         streamingText = ""
+        activeRunID = nil
 
         turn = Task { [weak self] in
             guard let self else { return }
@@ -184,6 +218,7 @@ final class ChatConversationModel {
                     wireProtocol: wireProtocol(for: capabilities),
                     previousResponseID: capabilities.supportsResponses ? previousResponseID : nil
                 )
+                activeWireProtocol = request.wireProtocol
 
                 for await update in await coordinator.start(request, profile: profile, password: password) {
                     guard generation == self.generation else { return }
@@ -359,7 +394,14 @@ final class ChatConversationModel {
     private func apply(_ update: TurnUpdate) {
         switch update {
         case let .accepted(responseID):
-            if let responseID { previousResponseID = responseID }
+            // The runs transport reports a run identifier here, not a response id;
+            // feeding one into previous_response_id would corrupt continuity.
+            guard let responseID else { break }
+            if case .run = activeWireProtocol {
+                activeRunID = responseID
+            } else {
+                previousResponseID = responseID
+            }
         case let .delta(text):
             activeToolName = nil
             enqueue(text)
@@ -426,6 +468,7 @@ final class ChatConversationModel {
     private func finish() {
         commitStreamedText()
         activeToolName = nil
+        activeRunID = nil
         turn = nil
     }
 

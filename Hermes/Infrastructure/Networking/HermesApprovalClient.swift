@@ -30,6 +30,10 @@ protocol RunServicing: Sendable {
     ) async throws -> ApprovalOutcome
 
     func status(runID: String, profile: ServerProfile, password: String) async throws -> RunStatus
+
+    /// Ask the server to stop the run. This is not the same as disconnecting: it
+    /// interrupts work that would otherwise keep going.
+    func stop(runID: String, profile: ServerProfile, password: String) async throws
 }
 
 nonisolated enum ApprovalOutcome: Sendable, Equatable {
@@ -72,5 +76,14 @@ nonisolated struct HermesRunClient: RunServicing {
             throw HermesConnectionError.from(statusCode: response.statusCode)
         }
         return try JSONDecoder().decode(RunStatus.self, from: response.data)
+    }
+
+    func stop(runID: String, profile: ServerProfile, password: String) async throws {
+        let response = try await HermesHTTPClient(profile: profile, password: password, timeout: timeout)
+            .post("v1/runs/\(runID)/stop", body: Data("{}".utf8))
+        // A run that already finished cannot be stopped, which is not an error.
+        guard (200..<300).contains(response.statusCode) || response.statusCode == 409 else {
+            throw HermesConnectionError.from(statusCode: response.statusCode)
+        }
     }
 }
