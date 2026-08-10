@@ -137,6 +137,14 @@ final class HermesHTTPClient: @unchecked Sendable {
         try await send(endpoint, method: "POST", body: body, query: [])
     }
 
+    func patch(_ endpoint: String, body: Data?) async throws -> HermesHTTPResponse {
+        try await send(endpoint, method: "PATCH", body: body, query: [])
+    }
+
+    func delete(_ endpoint: String) async throws -> HermesHTTPResponse {
+        try await send(endpoint, method: "DELETE", body: nil, query: [])
+    }
+
     private func send(
         _ endpoint: String,
         method: String,

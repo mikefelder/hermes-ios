@@ -51,6 +51,16 @@ private actor ScriptedReconciler: SessionServicing {
     ) async throws -> [SessionMessage] {
         []
     }
+
+    func rename(id: String, title: String, profile: ServerProfile, password: String) async throws -> SessionSummary {
+        throw HermesConnectionError.unavailable(404)
+    }
+
+    func delete(id: String, profile: ServerProfile, password: String) async throws {}
+
+    func fork(id: String, profile: ServerProfile, password: String) async throws -> SessionSummary {
+        throw HermesConnectionError.unavailable(404)
+    }
 }
 
 /// Reports a scripted run status so a dropped run stream can be resolved.

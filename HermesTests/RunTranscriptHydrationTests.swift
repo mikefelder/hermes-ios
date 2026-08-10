@@ -32,6 +32,16 @@ private actor TranscriptReconciler: SessionServicing {
         messageFetches += 1
         return stored
     }
+
+    func rename(id: String, title: String, profile: ServerProfile, password: String) async throws -> SessionSummary {
+        throw HermesConnectionError.unavailable(404)
+    }
+
+    func delete(id: String, profile: ServerProfile, password: String) async throws {}
+
+    func fork(id: String, profile: ServerProfile, password: String) async throws -> SessionSummary {
+        throw HermesConnectionError.unavailable(404)
+    }
 }
 
 private struct CompletingChatClient: ChatStreaming {

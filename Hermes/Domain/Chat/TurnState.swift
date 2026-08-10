@@ -80,4 +80,8 @@ protocol SessionServicing: Sendable {
     func session(id: String, profile: ServerProfile, password: String) async throws -> SessionSummary
     func sessions(limit: Int, profile: ServerProfile, password: String) async throws -> [SessionSummary]
     func messages(sessionID: String, limit: Int, profile: ServerProfile, password: String) async throws -> [SessionMessage]
+    func rename(id: String, title: String, profile: ServerProfile, password: String) async throws -> SessionSummary
+    func delete(id: String, profile: ServerProfile, password: String) async throws
+    /// Branch a session, leaving the original untouched.
+    func fork(id: String, profile: ServerProfile, password: String) async throws -> SessionSummary
 }

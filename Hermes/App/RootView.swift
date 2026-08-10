@@ -62,6 +62,8 @@ struct MainTabView: View {
                 SessionsView(appModel: appModel) { sessionID in
                     selectedTab = .chat
                     Task { await conversation?.open(sessionID: sessionID) }
+                } onSessionDeleted: { sessionID in
+                    conversation?.sessionWasDeleted(sessionID)
                 }
             }
             .tabItem { Label("Sessions", systemImage: "clock.arrow.circlepath") }

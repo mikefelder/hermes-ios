@@ -119,6 +119,7 @@ struct ServerCapabilities: Codable, Equatable, Sendable {
     var models: [String]
     var checkedAt: Date
     var supportsSessions: Bool = false
+    var supportsSessionFork: Bool = false
     var supportsRunApproval: Bool = false
     var supportsRunStop: Bool = false
     var supportsToolProgress: Bool = false

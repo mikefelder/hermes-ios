@@ -191,6 +191,12 @@ final class ChatConversationModel {
         turnState = .idle
     }
 
+    /// Drop the transcript when the session it belongs to no longer exists.
+    func sessionWasDeleted(_ id: String) {
+        guard sessionID == id else { return }
+        clear()
+    }
+
     private func start() {
         generation &+= 1
         let generation = generation
