@@ -6,8 +6,10 @@ nonisolated enum TurnUpdate: Sendable, Equatable {
     case delta(String)
     /// A server-side tool is running, for display only.
     case toolActivity(name: String, preview: String?)
-    /// The server's transcript for the finished turn.
+    /// The server's transcript for the finished turn, appended to the conversation.
     case transcript([SessionMessage])
+    /// The session's complete transcript, which replaces the conversation.
+    case fullTranscript([SessionMessage])
     /// The agent is blocked awaiting permission.
     case approval(ApprovalRequest)
     /// A pending approval was resolved.
@@ -141,6 +143,11 @@ actor ChatTurnCoordinator {
                 case .finished:
                     break
                 case .done:
+                    // A run stream reports no per-turn transcript, so tool calls and
+                    // their results only exist in the session's stored messages.
+                    if isRunTurn(request) {
+                        await hydrate(profile: profile, password: password, continuation: continuation)
+                    }
                     continuation.yield(.state(.completed))
                     return
                 }
@@ -165,6 +172,25 @@ actor ChatTurnCoordinator {
     private func isRunTurn(_ request: ChatTurnRequest) -> Bool {
         if case .run = request.wireProtocol { return true }
         return false
+    }
+
+    /// Read the session's stored messages and hand back the whole transcript.
+    private func hydrate(
+        profile: ServerProfile,
+        password: String,
+        continuation: AsyncStream<TurnUpdate>.Continuation
+    ) async {
+        guard let sessionID = boundSessionID,
+              let reconciler,
+              let stored = try? await reconciler.messages(
+                  sessionID: sessionID,
+                  limit: 200,
+                  profile: profile,
+                  password: password
+              ),
+              !stored.isEmpty
+        else { return }
+        continuation.yield(.fullTranscript(stored))
     }
 
     private func handle(
@@ -221,16 +247,7 @@ actor ChatTurnCoordinator {
                 return .outcomeUnknown
             }
             if status.isTerminal {
-                if let sessionID = boundSessionID,
-                   let reconciler,
-                   let stored = try? await reconciler.messages(
-                       sessionID: sessionID,
-                       limit: 200,
-                       profile: profile,
-                       password: password
-                   ) {
-                    continuation.yield(.transcript(stored))
-                }
+                await hydrate(profile: profile, password: password, continuation: continuation)
                 return status.succeeded ? .completed : .failed("The run ended as \(status.status).")
             }
             try? await Task.sleep(for: .seconds(2))

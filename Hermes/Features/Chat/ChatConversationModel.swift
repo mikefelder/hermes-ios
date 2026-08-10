@@ -48,6 +48,8 @@ final class ChatConversationModel {
     /// The server's version of the finished turn, applied in place of accumulated
     /// deltas so tool results appear without a second request.
     private var serverTranscript: [SessionMessage]?
+    /// A complete session transcript, which supersedes the whole conversation.
+    private var replacementTranscript: [SessionMessage]?
     /// Retained locally because a dropped run stream cannot replay this payload.
     private(set) var pendingApproval: ApprovalRequest?
     private var isRespondingToApproval = false
@@ -365,6 +367,8 @@ final class ChatConversationModel {
             activeToolName = preview.map { "\(name): \($0)" } ?? name
         case let .transcript(messages):
             serverTranscript = messages
+        case let .fullTranscript(messages):
+            replacementTranscript = messages
         case let .approval(request):
             pendingApproval = request
             activeToolName = nil
@@ -442,6 +446,19 @@ final class ChatConversationModel {
         flush?.cancel()
         flush = nil
         drainPendingDelta()
+
+        // A full transcript already contains this turn, so replacing avoids the
+        // duplication that appending would cause.
+        if let transcript = replacementTranscript {
+            replacementTranscript = nil
+            serverTranscript = nil
+            let rendered = transcript.asTranscript()
+            if !rendered.isEmpty {
+                streamingText = ""
+                messages = rendered
+                return
+            }
+        }
 
         // The server's transcript supersedes accumulated deltas: it also carries
         // this turn's tool calls and their results.
