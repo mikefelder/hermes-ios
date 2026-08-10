@@ -7,7 +7,7 @@ struct AppEnvironment: Sendable {
     let chatClient: any ChatStreaming
     let sessionsClient: (any SessionServicing)?
     let capabilityDiscovery: (any CapabilityDiscovering)?
-    let approvals: (any ApprovalResponding)?
+    let approvals: (any RunServicing)?
     let pendingWork: any PendingWorkStoring
     let logger: HermesLogger
 
@@ -19,7 +19,7 @@ struct AppEnvironment: Sendable {
             chatClient: HermesChatClient(),
             sessionsClient: HermesSessionsClient(),
             capabilityDiscovery: HermesCapabilitiesClient(),
-            approvals: HermesApprovalClient(),
+            approvals: HermesRunClient(),
             pendingWork: PendingWorkStore(),
             logger: HermesLogger(category: "app")
         )

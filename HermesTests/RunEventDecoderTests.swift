@@ -96,3 +96,31 @@ struct ApprovalRequestTests {
         #expect(request.allowsAlways == false)
     }
 }
+
+@Suite("Run status")
+struct RunStatusTests {
+    private func decode(_ json: String) throws -> RunStatus {
+        try JSONDecoder().decode(RunStatus.self, from: Data(json.utf8))
+    }
+
+    @Test("A running turn is not terminal")
+    func inProgressIsNotTerminal() throws {
+        let status = try decode(#"{"status":"running","last_event":"message.delta"}"#)
+
+        #expect(status.isTerminal == false)
+        #expect(status.lastEvent == "message.delta")
+    }
+
+    @Test("Terminal statuses are recognised and only completion counts as success")
+    func terminalStatuses() throws {
+        #expect(try decode(#"{"status":"completed"}"#).succeeded)
+        #expect(try decode(#"{"status":"failed"}"#).isTerminal)
+        #expect(try decode(#"{"status":"failed"}"#).succeeded == false)
+        #expect(try decode(#"{"status":"cancelled"}"#).isTerminal)
+    }
+
+    @Test("An approval awaiting an answer is not terminal")
+    func waitingForApprovalIsNotTerminal() throws {
+        #expect(try decode(#"{"status":"waiting_for_approval"}"#).isTerminal == false)
+    }
+}

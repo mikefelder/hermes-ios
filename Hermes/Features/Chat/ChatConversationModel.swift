@@ -51,12 +51,23 @@ final class ChatConversationModel {
     /// Retained locally because a dropped run stream cannot replay this payload.
     private(set) var pendingApproval: ApprovalRequest?
     private var isRespondingToApproval = false
+    private var approvalExpiry: Task<Void, Never>?
+
+    /// The server fails an unanswered approval closed after this long and sends no
+    /// event when it does, so the client runs its own clock.
+    private static let approvalWindow: TimeInterval = 300
+
+    /// When the pending approval stops being answerable.
+    var approvalDeadline: Date? {
+        pendingApproval.map { $0.receivedAt.addingTimeInterval(Self.approvalWindow) }
+    }
 
     init(appModel: AppModel) {
         self.appModel = appModel
         self.coordinator = ChatTurnCoordinator(
             chatClient: appModel.environment.chatClient,
-            reconciler: appModel.environment.sessionsClient
+            reconciler: appModel.environment.sessionsClient,
+            runService: appModel.environment.approvals
         )
     }
 
@@ -235,6 +246,33 @@ final class ChatConversationModel {
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
+        clearApproval()
+    }
+
+    /// The server treats silence as denial after its timeout, so stop offering a
+    /// choice that can no longer be honoured.
+    private func startApprovalExpiry(for request: ApprovalRequest) {
+        approvalExpiry?.cancel()
+        let remaining = request.receivedAt.addingTimeInterval(Self.approvalWindow).timeIntervalSinceNow
+        guard remaining > 0 else { return expireApproval() }
+        approvalExpiry = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(remaining))
+            guard let self, !Task.isCancelled, pendingApproval?.runID == request.runID else { return }
+            expireApproval()
+        }
+    }
+
+    private func expireApproval() {
+        clearApproval()
+        errorMessage = """
+            The approval expired without an answer, so Hermes treated it as denied. \
+            Ask again if you still want that action.
+            """
+    }
+
+    private func clearApproval() {
+        approvalExpiry?.cancel()
+        approvalExpiry = nil
         pendingApproval = nil
     }
 
@@ -330,8 +368,9 @@ final class ChatConversationModel {
         case let .approval(request):
             pendingApproval = request
             activeToolName = nil
+            startApprovalExpiry(for: request)
         case .approvalResolved:
-            pendingApproval = nil
+            clearApproval()
         case let .state(state):
             apply(state)
         }

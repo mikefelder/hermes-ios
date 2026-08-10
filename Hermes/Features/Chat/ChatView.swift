@@ -8,6 +8,14 @@ struct ChatView: View {
     var body: some View {
         VStack(spacing: 0) {
             transcript
+            if let approval = conversation.pendingApproval {
+                ApprovalCard(request: approval, deadline: conversation.approvalDeadline) { choice in
+                    Task { await conversation.respondToApproval(choice: choice) }
+                }
+                .padding(.horizontal, HermesSpacing.standard)
+                .padding(.bottom, HermesSpacing.small)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
             composer
         }
         .navigationTitle(appModel.activeProfile?.name ?? "Hermes")
@@ -43,12 +51,6 @@ struct ChatView: View {
                     } else if conversation.isStreaming {
                         TypingIndicator(toolName: conversation.activeToolName)
                             .id(streamingAnchor)
-                    }
-                    if let approval = conversation.pendingApproval {
-                        ApprovalCard(request: approval) { choice in
-                            Task { await conversation.respondToApproval(choice: choice) }
-                        }
-                        .id(approvalAnchor)
                     }
                     if let errorMessage = conversation.errorMessage {
                         VStack(alignment: .leading, spacing: HermesSpacing.small) {
@@ -133,7 +135,6 @@ struct ChatView: View {
     }
 
     private var streamingAnchor: String { "streaming" }
-    private var approvalAnchor: String { "approval" }
     private var bottomAnchor: String { "bottom" }
 
     private func scroll(_ proxy: ScrollViewProxy) {
@@ -186,15 +187,25 @@ private struct ChatBubble: View {
 /// asked to authorise exactly this action, and it is rendered as inert text.
 private struct ApprovalCard: View {
     let request: ApprovalRequest
+    let deadline: Date?
     let respond: (String) -> Void
 
     @State private var confirmAlways = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: HermesSpacing.small) {
-            Label("Approval required", systemImage: "exclamationmark.shield.fill")
-                .font(.callout.weight(.semibold))
-                .foregroundStyle(HermesTheme.warning)
+            HStack {
+                Label("Approval required", systemImage: "exclamationmark.shield.fill")
+                    .font(.callout.weight(.semibold))
+                    .foregroundStyle(HermesTheme.warning)
+                Spacer()
+                if let deadline, deadline > .now {
+                    Text(timerInterval: Date.now...deadline, countsDown: true)
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(HermesTheme.textSecondary)
+                        .accessibilityLabel("Time remaining to answer")
+                }
+            }
 
             if let reason = request.reason, !reason.isEmpty {
                 Text(reason)

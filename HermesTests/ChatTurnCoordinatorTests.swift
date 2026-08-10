@@ -53,6 +53,24 @@ private actor ScriptedReconciler: SessionServicing {
     }
 }
 
+/// Reports a scripted run status so a dropped run stream can be resolved.
+private struct ScriptedRunService: RunServicing {
+    var runStatus: RunStatus
+
+    func respond(
+        runID: String,
+        choice: String,
+        profile: ServerProfile,
+        password: String
+    ) async throws -> ApprovalOutcome {
+        .resolved
+    }
+
+    func status(runID: String, profile: ServerProfile, password: String) async throws -> RunStatus {
+        runStatus
+    }
+}
+
 private func summary(id: String, messageCount: Int, preview: String? = nil) -> SessionSummary {
     SessionSummary(
         id: id,
@@ -185,6 +203,56 @@ struct ChatTurnCoordinatorTests {
 
         #expect(states.last == .stopping)
         #expect(states.contains(.reconciling) == false)
+    }
+
+    /// A run keeps executing after its stream drops, so the server is asked what
+    /// happened rather than the turn being guessed at or resent.
+    private func collectRun(
+        _ coordinator: ChatTurnCoordinator,
+        profile: ServerProfile
+    ) async -> [TurnUpdate] {
+        var updates: [TurnUpdate] = []
+        let request = ChatTurnRequest(
+            messages: [ChatMessage(role: .user, content: "hi")],
+            wireProtocol: .run(sessionID: "api-1")
+        )
+        for await update in await coordinator.start(request, profile: profile, password: "sk-test") {
+            updates.append(update)
+        }
+        return updates
+    }
+
+    @Test("A dropped run that finished server-side reports completion")
+    func resolvesDroppedRunAsCompleted() async throws {
+        let coordinator = ChatTurnCoordinator(
+            chatClient: ScriptedChatClient(
+                events: [.turnAccepted(id: "run_1")],
+                failure: HermesConnectionError.offline
+            ),
+            reconciler: ScriptedReconciler(pages: [[]]),
+            runService: ScriptedRunService(runStatus: RunStatus(status: "completed", lastEvent: "run.completed"))
+        )
+
+        let states = states(await collectRun(coordinator, profile: try profile()))
+
+        #expect(states.contains(.reconciling))
+        #expect(states.last == .completed)
+    }
+
+    @Test("A dropped run that failed server-side is not offered as a resend")
+    func resolvesDroppedRunAsFailed() async throws {
+        let coordinator = ChatTurnCoordinator(
+            chatClient: ScriptedChatClient(
+                events: [.turnAccepted(id: "run_1")],
+                failure: HermesConnectionError.offline
+            ),
+            reconciler: ScriptedReconciler(pages: [[]]),
+            runService: ScriptedRunService(runStatus: RunStatus(status: "failed", lastEvent: "run.failed"))
+        )
+
+        let states = states(await collectRun(coordinator, profile: try profile()))
+
+        #expect(states.last?.allowsRetry == true)
     }
 }
 

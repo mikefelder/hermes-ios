@@ -1,16 +1,35 @@
 import Foundation
 
-/// Answers a pending approval.
+/// Status of a submitted run, used to resolve a turn whose event stream was lost.
+nonisolated struct RunStatus: Decodable, Sendable, Equatable {
+    var status: String
+    var lastEvent: String?
+
+    enum CodingKeys: String, CodingKey {
+        case status
+        case lastEvent = "last_event"
+    }
+
+    var isTerminal: Bool {
+        ["completed", "failed", "cancelled", "error"].contains(status.lowercased())
+    }
+
+    var succeeded: Bool { status.lowercased() == "completed" }
+}
+
+/// Answers a pending approval and reports run status.
 ///
-/// The response is bound to the run, not to a request identifier: the server
-/// resolves the oldest pending approval in that run's queue.
-protocol ApprovalResponding: Sendable {
+/// The approval response is bound to the run, not to a request identifier: the
+/// server resolves the oldest pending approval in that run's queue.
+protocol RunServicing: Sendable {
     func respond(
         runID: String,
         choice: String,
         profile: ServerProfile,
         password: String
     ) async throws -> ApprovalOutcome
+
+    func status(runID: String, profile: ServerProfile, password: String) async throws -> RunStatus
 }
 
 nonisolated enum ApprovalOutcome: Sendable, Equatable {
@@ -19,7 +38,7 @@ nonisolated enum ApprovalOutcome: Sendable, Equatable {
     case alreadyResolved
 }
 
-nonisolated struct HermesApprovalClient: ApprovalResponding {
+nonisolated struct HermesRunClient: RunServicing {
     private let timeout: TimeInterval
 
     init(timeout: TimeInterval = 15) {
@@ -44,5 +63,14 @@ nonisolated struct HermesApprovalClient: ApprovalResponding {
         default:
             throw HermesConnectionError.from(statusCode: response.statusCode)
         }
+    }
+
+    func status(runID: String, profile: ServerProfile, password: String) async throws -> RunStatus {
+        let response = try await HermesHTTPClient(profile: profile, password: password, timeout: timeout)
+            .get("v1/runs/\(runID)")
+        guard (200..<300).contains(response.statusCode) else {
+            throw HermesConnectionError.from(statusCode: response.statusCode)
+        }
+        return try JSONDecoder().decode(RunStatus.self, from: response.data)
     }
 }

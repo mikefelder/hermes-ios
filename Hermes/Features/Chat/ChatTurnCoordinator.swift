@@ -28,14 +28,31 @@ nonisolated enum TurnUpdate: Sendable, Equatable {
 actor ChatTurnCoordinator {
     private let chatClient: any ChatStreaming
     private let reconciler: (any SessionServicing)?
+    private let runService: (any RunServicing)?
 
     private var active: Task<Void, Never>?
     /// Stale events from a superseded turn are discarded by comparing generations.
     private var generation = UUID()
 
-    init(chatClient: any ChatStreaming, reconciler: (any SessionServicing)? = nil) {
+    init(
+        chatClient: any ChatStreaming,
+        reconciler: (any SessionServicing)? = nil,
+        runService: (any RunServicing)? = nil
+    ) {
         self.chatClient = chatClient
         self.reconciler = reconciler
+        self.runService = runService
+    }
+
+    /// Session this turn writes into, used to hydrate a transcript after a drop.
+    private var boundSessionID: String?
+
+    private func sessionID(of request: ChatTurnRequest) -> String? {
+        switch request.wireProtocol {
+        case let .run(sessionID): sessionID
+        case let .sessionChat(sessionID): sessionID
+        default: nil
+        }
     }
 
     /// Cancel the local stream. This disconnects the client; it does not stop
@@ -52,6 +69,7 @@ actor ChatTurnCoordinator {
         password: String
     ) -> AsyncStream<TurnUpdate> {
         cancelActive()
+        boundSessionID = sessionID(of: request)
         let generation = generation
 
         return AsyncStream { continuation in
@@ -84,6 +102,7 @@ actor ChatTurnCoordinator {
         // against the server's transcript afterwards.
         let baseline = await snapshot(profile: profile, password: password)
         var accepted = false
+        var runID: String?
 
         do {
             for try await event in chatClient.stream(request, profile: profile, password: password) {
@@ -91,6 +110,7 @@ actor ChatTurnCoordinator {
                 switch event {
                 case let .turnAccepted(id):
                     accepted = true
+                    runID = id
                     continuation.yield(.accepted(responseID: id))
                     continuation.yield(.state(.streaming))
                 case .messageStarted:
@@ -132,6 +152,7 @@ actor ChatTurnCoordinator {
             await handle(
                 error,
                 accepted: accepted,
+                runID: isRunTurn(request) ? runID : nil,
                 prompt: request.messages.last?.content,
                 baseline: baseline,
                 profile: profile,
@@ -141,9 +162,15 @@ actor ChatTurnCoordinator {
         }
     }
 
+    private func isRunTurn(_ request: ChatTurnRequest) -> Bool {
+        if case .run = request.wireProtocol { return true }
+        return false
+    }
+
     private func handle(
         _ error: Error,
         accepted: Bool,
+        runID: String?,
         prompt: String?,
         baseline: [SessionSummary]?,
         profile: ServerProfile,
@@ -162,12 +189,53 @@ actor ChatTurnCoordinator {
         }
 
         continuation.yield(.state(.reconciling))
+
+        // A run keeps going after its stream drops, and the stream cannot be
+        // resumed, so ask the server what happened instead of guessing.
+        if let runID, let state = await resolveRun(runID, profile: profile, password: password, continuation: continuation) {
+            continuation.yield(.state(state))
+            return
+        }
+
         continuation.yield(.state(await reconcile(
             prompt: prompt,
             baseline: baseline,
             profile: profile,
             password: password
         )))
+    }
+
+    /// Poll a run to a terminal status, then hydrate the transcript the stream
+    /// stopped delivering. Returns nil when no run service is available.
+    private func resolveRun(
+        _ runID: String,
+        profile: ServerProfile,
+        password: String,
+        continuation: AsyncStream<TurnUpdate>.Continuation
+    ) async -> TurnState? {
+        guard let runService else { return nil }
+        let deadline = Date().addingTimeInterval(30)
+
+        while Date() < deadline {
+            guard let status = try? await runService.status(runID: runID, profile: profile, password: password) else {
+                return .outcomeUnknown
+            }
+            if status.isTerminal {
+                if let sessionID = boundSessionID,
+                   let reconciler,
+                   let stored = try? await reconciler.messages(
+                       sessionID: sessionID,
+                       limit: 200,
+                       profile: profile,
+                       password: password
+                   ) {
+                    continuation.yield(.transcript(stored))
+                }
+                return status.succeeded ? .completed : .failed("The run ended as \(status.status).")
+            }
+            try? await Task.sleep(for: .seconds(2))
+        }
+        return .outcomeUnknown
     }
 
     /// True only for failures that prove the server never began the turn.
