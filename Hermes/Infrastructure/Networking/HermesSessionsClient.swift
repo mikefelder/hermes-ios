@@ -28,12 +28,18 @@ nonisolated struct HermesSessionsClient: SessionServicing {
     }
 
     func sessions(limit: Int, profile: ServerProfile, password: String) async throws -> [SessionSummary] {
+        // Forked sessions are children, which the server omits unless asked for.
         let response = try await HermesHTTPClient(profile: profile, password: password, timeout: timeout)
-            .get("api/sessions", query: [URLQueryItem(name: "limit", value: String(min(limit, 200)))])
+            .get("api/sessions", query: [
+                URLQueryItem(name: "limit", value: String(min(limit, 200))),
+                URLQueryItem(name: "include_children", value: "true")
+            ])
         guard (200..<300).contains(response.statusCode) else {
             throw HermesConnectionError.from(statusCode: response.statusCode)
         }
-        return try JSONDecoder().decode(SessionListPage.self, from: response.data).data
+        return try JSONDecoder().decode(SessionListPage.self, from: response.data)
+            .data
+            .filter { !$0.isInternal }
     }
 
     func messages(

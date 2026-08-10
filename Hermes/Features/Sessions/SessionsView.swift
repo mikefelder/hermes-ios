@@ -251,6 +251,13 @@ private struct SessionRow: View {
                 .font(.body.weight(.medium))
                 .lineLimit(2)
             HStack(spacing: HermesSpacing.small) {
+                if session.isBranch {
+                    Label("Branch", systemImage: "arrow.triangle.branch")
+                        .font(.caption)
+                        .padding(.horizontal, HermesSpacing.small)
+                        .padding(.vertical, 2)
+                        .background(HermesTheme.raisedSurface, in: Capsule())
+                }
                 if let source = session.source {
                     Text(source.replacingOccurrences(of: "_", with: " "))
                         .font(.caption)

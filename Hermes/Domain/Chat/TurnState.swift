@@ -46,6 +46,8 @@ nonisolated struct SessionSummary: Decodable, Sendable, Equatable, Identifiable 
     var toolCallCount: Int?
     var preview: String?
     var lastActive: Double?
+    /// Set when this session was branched from another.
+    var parentSessionID: String?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -56,6 +58,22 @@ nonisolated struct SessionSummary: Decodable, Sendable, Equatable, Identifiable 
         case toolCallCount = "tool_call_count"
         case preview
         case lastActive = "last_active"
+        case parentSessionID = "parent_session_id"
+    }
+}
+
+extension SessionSummary {
+    /// Sub-agent and dispatcher runs are bookkeeping rather than conversations,
+    /// and arrive once child sessions are requested.
+    static let internalSources: Set<String> = ["tool", "kanban"]
+
+    var isInternal: Bool {
+        guard let source else { return false }
+        return Self.internalSources.contains(source.lowercased())
+    }
+
+    var isBranch: Bool {
+        !(parentSessionID ?? "").isEmpty
     }
 }
 
