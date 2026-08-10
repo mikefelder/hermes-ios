@@ -451,3 +451,68 @@ After Phase 0 decisions, create these first tickets in order:
 12. Run first real staging/Tailscale vertical-slice test and update fixtures/specs.
 
 This sequence produces evidence early, before investing in broader surfaces.
+
+## 21. Current state and next steps
+
+Sections 4–20 are the original plan, written before the deployment existed. This
+section records where the app actually is, verified against the live server
+(Hermes 0.20.0 behind Tailscale), and what comes next.
+
+### Shipped and validated on device
+
+- Connection onboarding, Keychain credentials, origin-bound auth, redirect policy.
+- Capability discovery via `GET /v1/capabilities`, persisted and refreshed on launch.
+- Streaming chat over session chat, Responses, and Chat Completions transports.
+- Markdown rendering with sanitization; code blocks; tool activity rows.
+- Turn coordinator with acceptance tracking, reconciliation, and retry safety.
+- Sessions tab: list, open, resume.
+- Explicit session creation; draft and pending-turn persistence.
+- Approvals over the runs transport, with a pinned card and 300s expiry timer.
+- Stop / cancellation, verified against a long-running turn.
+
+### Confirmed server behavior worth remembering
+
+- Approvals exist **only** on the runs transport. On the session chat stream a
+  dangerous command silently becomes a blocked tool result.
+- Run event streams are single-shot; reconnecting to `/v1/runs/{id}/events`
+  returns 404.
+- Streamed tool working-output is **not persisted**. Anything that should survive
+  a session reload has to be captured client-side as it streams; re-fetching the
+  transcript will not bring it back.
+- `_thinking` is a pseudo-tool duplicating assistant text. Filter tool names
+  beginning with `_`.
+- Config, cron, MCP, logs, and full-text session search are dashboard-only
+  (cookie auth) and absent from the API server.
+
+### Open threads
+
+- **Pagination fix is committed but unverified** (`42db3ab`).
+  `HermesSessionsClient.messages()` now requests `order=latest` and sorts
+  ascending, so hydration reflects the tail of a long session rather than its
+  beginning. Still owed one probe: confirm the server validates `order` (expect
+  `latest` → 200, a bogus value → 400). If the parameter is silently ignored,
+  the sort still guarantees correct display order, but explicit paging is needed
+  to reliably reach the tail of a session longer than the page limit.
+- **`resolveRun` gives up after 30s**, so genuinely long turns report
+  `outcomeUnknown` even when they succeed. Revisit once turns get longer.
+
+### Next features, in priority order
+
+1. **Session management — rename, delete, fork.** Largest capability gap and the
+   only one with every request shape already confirmed: `PATCH /api/sessions/{id}`
+   (`title`, `pinned`, `archived`), `DELETE /api/sessions/{id}`, and
+   `POST /api/sessions/{id}/fork` → 201. Fork matters most: it branches a
+   conversation without destroying the original when an agent turn goes wrong.
+   No discovery needed.
+2. **Per-session model picker.** `model_options` and `session_model_lock` are both
+   true; `POST /api/sessions/{id}/model` exists. Needs one probe of
+   `/api/model/options` to learn the provider row shape before building UI.
+3. **Reasoning display.** The runs stream emits `reasoning.available`, currently
+   dropped. Surfacing it as a collapsible block is the difference between a
+   spinner and understanding what the agent is doing.
+4. **Approval persistence across app termination.** State is memory-only today, so
+   a force-quit strands a run that the server will hold for 300s with no way to
+   answer. Persist alongside `PendingWork` and re-resolve via `GET /v1/runs/{id}`
+   on launch.
+5. **Skills API.** `skills_api` is true but unprobed; surface unknown, so it
+   cannot be sized honestly yet.
