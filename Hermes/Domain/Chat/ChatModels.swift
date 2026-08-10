@@ -49,6 +49,12 @@ nonisolated enum AgentEvent: Sendable, Equatable {
     /// The server's authoritative transcript for the finished turn, including tool
     /// results that the incremental events do not carry.
     case transcript([SessionMessage])
+    /// The agent is blocked awaiting permission to run a dangerous action.
+    case approvalRequested(ApprovalRequest)
+    /// A pending approval was resolved, here or on another client.
+    case approvalResolved
+    /// The turn failed server-side.
+    case turnFailed(String)
     /// The model reported a terminal finish reason for the turn (e.g. `stop`, `length`).
     case finished(reason: String?)
     /// The stream signalled completion via its terminator.

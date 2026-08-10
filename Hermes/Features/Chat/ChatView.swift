@@ -44,6 +44,12 @@ struct ChatView: View {
                         TypingIndicator(toolName: conversation.activeToolName)
                             .id(streamingAnchor)
                     }
+                    if let approval = conversation.pendingApproval {
+                        ApprovalCard(request: approval) { choice in
+                            Task { await conversation.respondToApproval(choice: choice) }
+                        }
+                        .id(approvalAnchor)
+                    }
                     if let errorMessage = conversation.errorMessage {
                         VStack(alignment: .leading, spacing: HermesSpacing.small) {
                             Label(errorMessage, systemImage: conversation.isOutcomeUnknown
@@ -127,6 +133,7 @@ struct ChatView: View {
     }
 
     private var streamingAnchor: String { "streaming" }
+    private var approvalAnchor: String { "approval" }
     private var bottomAnchor: String { "bottom" }
 
     private func scroll(_ proxy: ScrollViewProxy) {
@@ -172,6 +179,79 @@ private struct ChatBubble: View {
             MarkdownMessageView(blocks: MarkdownParser().parse(text))
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+}
+
+/// Inline approval prompt. The command is shown in full because the user is being
+/// asked to authorise exactly this action, and it is rendered as inert text.
+private struct ApprovalCard: View {
+    let request: ApprovalRequest
+    let respond: (String) -> Void
+
+    @State private var confirmAlways = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: HermesSpacing.small) {
+            Label("Approval required", systemImage: "exclamationmark.shield.fill")
+                .font(.callout.weight(.semibold))
+                .foregroundStyle(HermesTheme.warning)
+
+            if let reason = request.reason, !reason.isEmpty {
+                Text(reason)
+                    .font(.callout)
+                    .foregroundStyle(HermesTheme.textSecondary)
+            }
+
+            if !request.command.isEmpty {
+                ScrollView(.horizontal) {
+                    Text(request.command)
+                        .font(.callout.monospaced())
+                        .textSelection(.enabled)
+                        .padding(HermesSpacing.small)
+                }
+                .background(HermesTheme.canvas, in: RoundedRectangle(cornerRadius: HermesTheme.cardRadius))
+            }
+
+            HStack(spacing: HermesSpacing.small) {
+                Button("Allow once") { respond("once") }
+                    .buttonStyle(.borderedProminent)
+                    .tint(HermesTheme.agent)
+                Button("Deny", role: .destructive) { respond("deny") }
+                    .buttonStyle(.bordered)
+                Spacer()
+                if request.allowsSession || request.allowsAlways {
+                    Menu {
+                        if request.allowsSession {
+                            Button("Allow for this session") { respond("session") }
+                        }
+                        if request.allowsAlways {
+                            Button("Always allow…") { confirmAlways = true }
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                    }
+                    .accessibilityLabel("More approval options")
+                }
+            }
+        }
+        .padding(HermesSpacing.medium)
+        .background(HermesTheme.surface, in: RoundedRectangle(cornerRadius: HermesTheme.cardRadius))
+        .overlay {
+            RoundedRectangle(cornerRadius: HermesTheme.cardRadius)
+                .stroke(HermesTheme.warning.opacity(0.6), lineWidth: 1)
+        }
+        .confirmationDialog(
+            "Always allow this action?",
+            isPresented: $confirmAlways,
+            titleVisibility: .visible
+        ) {
+            Button("Always allow", role: .destructive) { respond("always") }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This writes a permanent allowlist entry on the Hermes server.")
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Approval required")
     }
 }
 

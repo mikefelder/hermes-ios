@@ -8,6 +8,10 @@ nonisolated enum TurnUpdate: Sendable, Equatable {
     case toolActivity(name: String, preview: String?)
     /// The server's transcript for the finished turn.
     case transcript([SessionMessage])
+    /// The agent is blocked awaiting permission.
+    case approval(ApprovalRequest)
+    /// A pending approval was resolved.
+    case approvalResolved
     /// The server acknowledged the turn; carries a continuation ID when the
     /// protocol provides one.
     case accepted(responseID: String?)
@@ -106,6 +110,14 @@ actor ChatTurnCoordinator {
                     continuation.yield(.toolActivity(name: name, preview: preview))
                 case let .transcript(messages):
                     continuation.yield(.transcript(messages))
+                case let .approvalRequested(request):
+                    accepted = true
+                    continuation.yield(.approval(request))
+                case .approvalResolved:
+                    continuation.yield(.approvalResolved)
+                case let .turnFailed(message):
+                    continuation.yield(.state(.failed(message)))
+                    return
                 case .finished:
                     break
                 case .done:

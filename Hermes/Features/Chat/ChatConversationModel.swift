@@ -48,6 +48,9 @@ final class ChatConversationModel {
     /// The server's version of the finished turn, applied in place of accumulated
     /// deltas so tool results appear without a second request.
     private var serverTranscript: [SessionMessage]?
+    /// Retained locally because a dropped run stream cannot replay this payload.
+    private(set) var pendingApproval: ApprovalRequest?
+    private var isRespondingToApproval = false
 
     init(appModel: AppModel) {
         self.appModel = appModel
@@ -201,10 +204,38 @@ final class ChatConversationModel {
     /// Prefer a session-bound turn so the transcript stays shared with the web UI
     /// and TUI; fall back to stateless protocols when sessions are unavailable.
     private func wireProtocol(for capabilities: ServerCapabilities) -> ChatWireProtocol {
+        // Runs are the only protocol that can deliver an approval prompt. Without
+        // one a dangerous command is silently refused and the agent just says so.
+        if capabilities.supportsRunApproval, appModel.environment.approvals != nil {
+            return .run(sessionID: sessionID)
+        }
         if let sessionID, capabilities.supportsSessions {
             return .sessionChat(sessionID: sessionID)
         }
         return capabilities.supportsResponses ? .responses : .chatCompletions
+    }
+
+    /// Answer a pending approval. Guarded because a notification or another client
+    /// may have resolved it already.
+    func respondToApproval(choice: String) async {
+        guard !isRespondingToApproval,
+              let request = pendingApproval,
+              let responder = appModel.environment.approvals,
+              let profile = appModel.activeProfile else { return }
+        isRespondingToApproval = true
+        defer { isRespondingToApproval = false }
+        do {
+            let password = try await appModel.passwordForActiveProfile() ?? ""
+            _ = try await responder.respond(
+                runID: request.runID,
+                choice: choice,
+                profile: profile,
+                password: password
+            )
+        } catch {
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
+        pendingApproval = nil
     }
 
     // MARK: - Pending work
@@ -296,6 +327,11 @@ final class ChatConversationModel {
             activeToolName = preview.map { "\(name): \($0)" } ?? name
         case let .transcript(messages):
             serverTranscript = messages
+        case let .approval(request):
+            pendingApproval = request
+            activeToolName = nil
+        case .approvalResolved:
+            pendingApproval = nil
         case let .state(state):
             apply(state)
         }
