@@ -252,31 +252,47 @@ private struct SessionRow: View {
                 .lineLimit(2)
             HStack(spacing: HermesSpacing.small) {
                 if session.isBranch {
-                    Label("Branch", systemImage: "arrow.triangle.branch")
-                        .font(.caption)
-                        .padding(.horizontal, HermesSpacing.small)
-                        .padding(.vertical, 2)
-                        .background(HermesTheme.raisedSurface, in: Capsule())
+                    MetadataBadge(text: "Branch", symbol: "arrow.triangle.branch")
                 }
                 if let source = session.source {
-                    Text(source.replacingOccurrences(of: "_", with: " "))
-                        .font(.caption)
-                        .padding(.horizontal, HermesSpacing.small)
-                        .padding(.vertical, 2)
-                        .background(HermesTheme.raisedSurface, in: Capsule())
+                    MetadataBadge(text: source.replacingOccurrences(of: "_", with: " "))
                 }
                 Text("\(session.messageCount) messages")
                     .font(.caption)
                     .foregroundStyle(HermesTheme.textSecondary)
+                    .lineLimit(1)
                 if let toolCallCount = session.toolCallCount, toolCallCount > 0 {
                     Text("\(toolCallCount) tool calls")
                         .font(.caption)
                         .foregroundStyle(HermesTheme.textSecondary)
+                        .lineLimit(1)
                 }
             }
         }
         .padding(.vertical, HermesSpacing.xSmall)
         .foregroundStyle(HermesTheme.textPrimary)
         .accessibilityElement(children: .combine)
+    }
+}
+
+/// Capsule label that keeps its text on one line; the counts beside it truncate first.
+private struct MetadataBadge: View {
+    let text: String
+    var symbol: String?
+
+    var body: some View {
+        Group {
+            if let symbol {
+                Label(text, systemImage: symbol)
+            } else {
+                Text(text)
+            }
+        }
+        .font(.caption)
+        .lineLimit(1)
+        .fixedSize(horizontal: true, vertical: false)
+        .padding(.horizontal, HermesSpacing.small)
+        .padding(.vertical, 2)
+        .background(HermesTheme.raisedSurface, in: Capsule())
     }
 }
