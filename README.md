@@ -318,7 +318,7 @@ Direct chat remains private to the tailnet. Only minimal notification metadata r
 
 - Project: `Hermes.xcodeproj`
 - App target: `Hermes`
-- Bundle identifier: set per developer (see below)
+- Bundle identifier: set per developer in `Config/Local.xcconfig`
 - Current deployment target: iOS 26.2
 - Verified toolchains: Xcode 26.2 and Xcode 27.0 Beta, on the iOS 26.2 simulator and an iOS 27 device
 - Current device families: iPhone and iPad
@@ -329,14 +329,24 @@ The minimum supported iOS version and whether iPad remains in the first release 
 
 ### Building your own copy
 
-The committed project carries the original author's signing identity, which no one else can build with. Before your first device build, in Xcode → target **Hermes** → **Signing & Capabilities**:
+Signing identity lives in an xcconfig, not in the project file, so the repository
+carries no developer's team or bundle identifier.
 
-1. Set **Team** to your own Apple developer team.
-2. Change the **Bundle Identifier** to your own reverse-DNS value, for example `com.example.hermes`. Repeat for the `HermesTests` target.
+```bash
+cp Config/Local.xcconfig.example Config/Local.xcconfig
+```
 
-Nothing else is environment-specific. The Keychain service and log subsystem are derived from the bundle identifier, so a fork gets its own namespaces automatically. Simulator builds and tests need no signing changes.
+Then set `HERMES_BUNDLE_ID` to your own reverse-DNS identifier and
+`HERMES_DEVELOPMENT_TEAM` to your Apple developer team. `Config/Local.xcconfig`
+is ignored by git, so your identity never enters a commit.
 
-The server URL, username, and API key are entered in the app at runtime and are never committed.
+Simulator builds and the test suite work without it; only device builds need a
+team. Nothing else is environment-specific: the Keychain service and log
+subsystem are derived from the bundle identifier, so a fork gets its own
+namespaces automatically.
+
+The server URL, username, and API key are entered in the app at runtime and are
+never committed.
 
 ## Primary references
 

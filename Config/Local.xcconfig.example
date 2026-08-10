@@ -1,0 +1,8 @@
+// Copy to Config/Local.xcconfig and fill in your own values. That file is
+// ignored by git, so your identity never enters the repository.
+//
+// Both are required for a device build. Simulator builds and tests work without
+// them.
+
+HERMES_BUNDLE_ID = com.example.hermes
+HERMES_DEVELOPMENT_TEAM = ABCDE12345

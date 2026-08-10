@@ -1,0 +1,10 @@
+// Signing identity. The committed values are placeholders so a fresh clone
+// builds and tests on the simulator without any setup.
+//
+// Do not put your own values here. Create Config/Local.xcconfig, which is
+// ignored by git and overrides everything below. See Config/Local.xcconfig.example.
+
+HERMES_BUNDLE_ID = com.example.hermes
+HERMES_DEVELOPMENT_TEAM =
+
+#include? "Local.xcconfig"
