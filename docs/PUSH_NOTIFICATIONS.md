@@ -74,7 +74,7 @@ Required project/developer configuration:
 - Store key ID, team ID, bundle topic, and private key only in Azure Key Vault/relay configuration.
 - Use development APNs for debug builds and production APNs for TestFlight/App Store.
 
-Expected topic: app bundle identifier for the relevant environment, `com.slashmike.Hermes`.
+Expected topic: app bundle identifier for the relevant environment, for example `com.example.hermes`.
 
 No Notification Service Extension is required for generic notifications. Add one only if a reviewed encrypted-rich-content design needs it.
 
@@ -151,7 +151,7 @@ Content-Type: application/json
   "installation_id": "opaque-random-id",
   "apns_token": "hex-token",
   "apns_environment": "development",
-  "bundle_id": "com.slashmike.Hermes",
+  "bundle_id": "com.example.hermes",
   "app_version": "1.0",
   "locale": "en-US",
   "preferences": {

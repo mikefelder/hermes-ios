@@ -201,8 +201,7 @@ If a connected physical iPhone is locked, Xcode may repeatedly log failure to st
 
 - `Hermes.xcodeproj/project.pbxproj` contains the `HermesTests` target. Its `buildConfigurationList` must remain `AA100000000000000000000B`; an interrupted edit previously produced an invalid 25-character reference and caused empty test settings.
 - The deployment target is intentionally iOS 26.2 because that SDK is installed. Lowering it remains an open product decision, not a build repair.
-- The physical target runs the iOS 27 public beta, but the deployment target remains iOS 26.2. Do not raise it merely to run on iOS 27; an iOS 26.2-targeted app remains compatible unless it adopts iOS 27-only APIs.
-- `xcode-select -p` points at stable `/Applications/Xcode.app/Contents/Developer`. Prefix Beta command-line builds with `DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer` rather than changing the global selection.
+- The physical target runs the iOS 27 public beta, but the deployment target remains iOS 26.2. Do not raise it merely to run on iOS 27; an iOS 26.2-targeted app remains compatible unless it adopts iOS 27-only APIs.- `xcode-select -p` points at stable `/Applications/Xcode.app/Contents/Developer`. Prefix Beta command-line builds with `DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer` rather than changing the global selection.
 - Xcode 27 Beta's Swift 6.4 compiler crashed on the async Objective-C thunk for `URLSessionTaskDelegate` redirect handling. `HermesHTTPClient` uses the equivalent completion-handler callback instead.
 - Xcode 27 rejects actor initialization with a non-Sendable `UserDefaults` parameter. `ConnectionSettingsStore` is a small `@unchecked Sendable` final class; its async protocol boundary and persistence behavior are unchanged.
 - Documentation lives only in the root `docs/` tree. A former `Hermes/docs/` copy was removed because the app target's file-synchronized group shipped it inside the app bundle.
@@ -319,15 +318,25 @@ Direct chat remains private to the tailnet. Only minimal notification metadata r
 
 - Project: `Hermes.xcodeproj`
 - App target: `Hermes`
-- Bundle identifier: `com.slashmike.Hermes`
+- Bundle identifier: set per developer (see below)
 - Current deployment target: iOS 26.2
-- Physical target: `Alpine iPhone`, iOS 27 public beta
-- Verified toolchains: Xcode 26.2 (`17C52`) and Xcode 27.0 Beta (`27A5228h`)
+- Verified toolchains: Xcode 26.2 and Xcode 27.0 Beta, on the iOS 26.2 simulator and an iOS 27 device
 - Current device families: iPhone and iPad
 - External dependencies: none
 - Test target: `HermesTests` using Swift Testing; `HermesUITests` is not yet created
 
 The minimum supported iOS version and whether iPad remains in the first release are open product decisions tracked in the [delivery plan](docs/DELIVERY_PLAN.md#18-open-decisions).
+
+### Building your own copy
+
+The committed project carries the original author's signing identity, which no one else can build with. Before your first device build, in Xcode → target **Hermes** → **Signing & Capabilities**:
+
+1. Set **Team** to your own Apple developer team.
+2. Change the **Bundle Identifier** to your own reverse-DNS value, for example `com.example.hermes`. Repeat for the `HermesTests` target.
+
+Nothing else is environment-specific. The Keychain service and log subsystem are derived from the bundle identifier, so a fork gets its own namespaces automatically. Simulator builds and tests need no signing changes.
+
+The server URL, username, and API key are entered in the app at runtime and are never committed.
 
 ## Primary references
 

@@ -27,7 +27,9 @@ enum CredentialStoreError: LocalizedError, Equatable {
 actor KeychainCredentialStore: CredentialStoring {
     private let service: String
 
-    init(service: String = "com.slashmike.Hermes.server-credential") {
+    /// Derived from the bundle so a fork with its own identifier gets its own
+    /// Keychain namespace rather than sharing one.
+    init(service: String = "\(Bundle.main.bundleIdentifier ?? "Hermes").server-credential") {
         self.service = service
     }
 

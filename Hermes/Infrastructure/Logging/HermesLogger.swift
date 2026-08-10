@@ -4,7 +4,7 @@ struct HermesLogger: Sendable {
     private let logger: Logger
 
     init(category: String) {
-        let subsystem = Bundle.main.bundleIdentifier ?? "com.slashmike.Hermes"
+        let subsystem = Bundle.main.bundleIdentifier ?? "Hermes"
         self.logger = Logger(subsystem: subsystem, category: category)
     }
 
