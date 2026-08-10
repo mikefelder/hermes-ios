@@ -42,15 +42,17 @@ nonisolated struct HermesSessionsClient: SessionServicing {
         profile: ServerProfile,
         password: String
     ) async throws -> [SessionMessage] {
-        // Without an explicit order the server returns the most recent page.
+        // Ask for the newest page so a session longer than `limit` hydrates to its
+        // tail, then restore reading order for display.
         let response = try await HermesHTTPClient(profile: profile, password: password, timeout: timeout)
             .get("api/sessions/\(sessionID)/messages", query: [
                 URLQueryItem(name: "limit", value: String(min(limit, 500))),
-                URLQueryItem(name: "order", value: "oldest")
+                URLQueryItem(name: "order", value: "latest")
             ])
         guard (200..<300).contains(response.statusCode) else {
             throw HermesConnectionError.from(statusCode: response.statusCode)
         }
-        return try JSONDecoder().decode(SessionMessagePage.self, from: response.data).data
+        let page = try JSONDecoder().decode(SessionMessagePage.self, from: response.data)
+        return page.data.sorted { $0.id < $1.id }
     }
 }
