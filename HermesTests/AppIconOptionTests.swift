@@ -14,6 +14,7 @@ struct AppIconOptionTests {
         #expect(AppIconOption.luminous.alternateIconName == "AppIcon-Luminous")
         #expect(AppIconOption.engraved.alternateIconName == "AppIcon-Engraved")
         #expect(AppIconOption.signal.alternateIconName == "AppIcon-Signal")
+        #expect(AppIconOption.original.alternateIconName == "AppIcon-Original")
     }
 
     @Test("Alternate icon names are unique across options")

@@ -8,6 +8,7 @@ nonisolated enum AppIconOption: String, CaseIterable, Identifiable, Sendable {
     case luminous
     case engraved
     case signal
+    case original
 
     var id: String { rawValue }
 
@@ -18,6 +19,7 @@ nonisolated enum AppIconOption: String, CaseIterable, Identifiable, Sendable {
         case .luminous: "AppIcon-Luminous"
         case .engraved: "AppIcon-Engraved"
         case .signal: "AppIcon-Signal"
+        case .original: "AppIcon-Original"
         }
     }
 
@@ -27,6 +29,7 @@ nonisolated enum AppIconOption: String, CaseIterable, Identifiable, Sendable {
         case .luminous: "Luminous Agent"
         case .engraved: "Orbital Engraved"
         case .signal: "Signal Mark"
+        case .original: "Original Agent"
         }
     }
 
@@ -37,6 +40,7 @@ nonisolated enum AppIconOption: String, CaseIterable, Identifiable, Sendable {
         case .luminous: "IconPreview-Luminous"
         case .engraved: "IconPreview-Engraved"
         case .signal: "IconPreview-Signal"
+        case .original: "IconPreview-Original"
         }
     }
 
