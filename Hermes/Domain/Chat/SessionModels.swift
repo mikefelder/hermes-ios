@@ -44,47 +44,79 @@ extension SessionMessage {
         timestamp.map(Date.init(timeIntervalSince1970:)) ?? .now
     }
 
-    /// Render a stored message for the transcript.
-    ///
-    /// Tool activity is presented as fenced code so it reuses the Markdown code
-    /// renderer, and so arguments and output are always shown as inert text.
-    func asChatMessages() -> [ChatMessage] {
-        var rendered: [ChatMessage] = []
+    var displayText: String? {
+        guard let content else { return nil }
+        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : content
+    }
 
-        if let content, !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            rendered.append(ChatMessage(
-                role: ChatRole(rawValue: role) ?? .assistant,
-                content: content,
-                createdAt: createdAt
-            ))
-        }
+    /// Tool work carried by this message. Names beginning with `_` are internal
+    /// pseudo-tools that restate the assistant's own text.
+    var activityEntries: [ToolActivity] {
+        var entries: [ToolActivity] = []
 
         for call in toolCalls ?? [] {
             let name = call.function?.name ?? "tool"
-            let arguments = call.function?.arguments ?? ""
-            rendered.append(ChatMessage(
-                role: .tool,
-                content: "**\(name)**\n\n```json\n\(arguments)\n```",
-                createdAt: createdAt
-            ))
+            guard !name.hasPrefix("_") else { continue }
+            entries.append(ToolActivity(name: name, detail: call.function?.arguments))
         }
 
-        if role == "tool", let content, !content.isEmpty, rendered.isEmpty {
-            rendered.append(ChatMessage(
-                role: .tool,
-                content: "**\(toolName ?? "result")**\n\n```json\n\(content)\n```",
-                createdAt: createdAt
-            ))
+        if role == "tool", entries.isEmpty, let content, !content.isEmpty {
+            let name = toolName ?? "result"
+            guard !name.hasPrefix("_") else { return entries }
+            entries.append(ToolActivity(name: name, detail: content))
         }
 
-        return rendered
+        return entries
     }
 }
 
 extension Array where Element == SessionMessage {
-    /// Flatten stored messages into a display transcript, dropping the empty
-    /// assistant turns that only carry tool calls.
+    /// Flatten stored messages into a display transcript.
+    ///
+    /// System prompts are configuration rather than conversation, and tool work is
+    /// attached to the reply it produced instead of being shown as its own turn.
     func asTranscript() -> [ChatMessage] {
-        flatMap { $0.asChatMessages() }
+        var transcript: [ChatMessage] = []
+        var pending: [ToolActivity] = []
+
+        // Work with no reply after it still has to be reachable.
+        func flushPending(at date: Date) {
+            guard !pending.isEmpty else { return }
+            transcript.append(ChatMessage(role: .assistant, content: "", createdAt: date, activity: pending))
+            pending = []
+        }
+
+        for message in self {
+            switch ChatRole(rawValue: message.role) {
+            case .system, nil:
+                continue
+            case .tool:
+                pending.append(contentsOf: message.activityEntries)
+            case .assistant:
+                pending.append(contentsOf: message.activityEntries)
+                if let text = message.displayText {
+                    transcript.append(ChatMessage(
+                        role: .assistant,
+                        content: text,
+                        createdAt: message.createdAt,
+                        activity: pending
+                    ))
+                    pending = []
+                }
+            case .user:
+                flushPending(at: message.createdAt)
+                if let text = message.displayText {
+                    transcript.append(ChatMessage(
+                        role: .user,
+                        content: text,
+                        createdAt: message.createdAt
+                    ))
+                }
+            }
+        }
+
+        flushPending(at: last?.createdAt ?? .now)
+        return transcript
     }
 }

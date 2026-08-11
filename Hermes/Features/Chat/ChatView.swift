@@ -42,7 +42,7 @@ struct ChatView: View {
                         emptyState
                     }
                     ForEach(conversation.messages) { message in
-                        ChatBubble(role: message.role, text: message.content)
+                        ChatBubble(role: message.role, text: message.content, activity: message.activity)
                             .id(message.id)
                     }
                     if !conversation.streamingText.isEmpty {
@@ -159,13 +159,21 @@ struct ChatView: View {
 private struct ChatBubble: View {
     let role: ChatRole
     let text: String
+    var activity: [ToolActivity] = []
+
+    @State private var showsActivity = false
 
     private var isUser: Bool { role == .user }
 
     var body: some View {
         HStack {
             if isUser { Spacer(minLength: HermesSpacing.xLarge) }
-            content
+            VStack(alignment: .leading, spacing: HermesSpacing.small) {
+                content
+                if !activity.isEmpty {
+                    activityDisclosure
+                }
+            }
                 .padding(HermesSpacing.medium)
                 .background(
                     isUser ? HermesTheme.agent.opacity(0.18) : HermesTheme.surface,
@@ -188,10 +196,46 @@ private struct ChatBubble: View {
             Text(text)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
-        } else {
+        } else if !text.isEmpty {
             MarkdownMessageView(blocks: MarkdownParser().parse(text))
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+
+    private var activityDisclosure: some View {
+        VStack(alignment: .leading, spacing: HermesSpacing.small) {
+            Button {
+                withAnimation(.snappy) { showsActivity.toggle() }
+            } label: {
+                Label(
+                    showsActivity ? "Hide work" : workLabel,
+                    systemImage: showsActivity ? "chevron.down" : "ellipsis"
+                )
+                .font(.caption.weight(.medium))
+                .foregroundStyle(HermesTheme.textSecondary)
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("chatActivityToggle")
+            .accessibilityHint("Shows the tool calls Hermes ran for this reply")
+
+            if showsActivity {
+                ForEach(activity) { entry in
+                    VStack(alignment: .leading, spacing: HermesSpacing.xSmall) {
+                        Text(entry.name)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(HermesTheme.textSecondary)
+                        if let detail = entry.detail, !detail.isEmpty {
+                            CodeBlockView(language: nil, content: detail)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+        }
+    }
+
+    private var workLabel: String {
+        activity.count == 1 ? "1 step" : "\(activity.count) steps"
     }
 }
 

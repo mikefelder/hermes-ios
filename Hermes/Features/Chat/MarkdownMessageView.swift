@@ -126,7 +126,7 @@ nonisolated enum MarkdownInline {
 }
 
 /// Monospaced, horizontally scrolling code with a language label and copy action.
-private struct CodeBlockView: View {
+struct CodeBlockView: View {
     let language: String?
     let content: String
 

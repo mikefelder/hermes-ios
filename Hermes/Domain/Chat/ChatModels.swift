@@ -8,6 +8,22 @@ nonisolated enum ChatRole: String, Codable, Sendable, Equatable, CaseIterable {
     case tool
 }
 
+/// Server-side work performed while producing a reply, e.g. a Python execution.
+///
+/// Kept alongside the reply rather than in the transcript: it is evidence for an
+/// answer, not a turn in the conversation.
+nonisolated struct ToolActivity: Identifiable, Sendable, Equatable {
+    let id: UUID
+    var name: String
+    var detail: String?
+
+    init(id: UUID = UUID(), name: String, detail: String? = nil) {
+        self.id = id
+        self.name = name
+        self.detail = detail
+    }
+}
+
 /// A single persisted chat message in a conversation transcript.
 ///
 /// This is a domain value type. Transport DTOs are decoded separately and mapped
@@ -17,17 +33,28 @@ nonisolated struct ChatMessage: Identifiable, Codable, Sendable, Equatable {
     var role: ChatRole
     var content: String
     let createdAt: Date
+    /// Excluded from `CodingKeys` so it never reaches the wire.
+    var activity: [ToolActivity] = []
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case role
+        case content
+        case createdAt
+    }
 
     init(
         id: UUID = UUID(),
         role: ChatRole,
         content: String,
-        createdAt: Date = .now
+        createdAt: Date = .now,
+        activity: [ToolActivity] = []
     ) {
         self.id = id
         self.role = role
         self.content = content
         self.createdAt = createdAt
+        self.activity = activity
     }
 }
 

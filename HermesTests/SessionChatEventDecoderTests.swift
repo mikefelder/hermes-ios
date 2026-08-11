@@ -115,13 +115,14 @@ struct SessionModelsTests {
         #expect(transcript.last?.content == "Hi there")
     }
 
-    @Test("A tool call renders as inert fenced text, never as an instruction")
+    @Test("Tool work attaches to the reply it produced instead of becoming a turn")
     func mapsToolCalls() throws {
         let messages = try decode(#"""
         {"object":"list","session_id":"api-1","data":[
           {"id":4,"session_id":"api-1","role":"assistant","content":"",
            "tool_calls":[{"id":"call_1","function":{"name":"terminal","arguments":"{\"command\":\"date\"}"}}],
-           "timestamp":1786313652.0}
+           "timestamp":1786313652.0},
+          {"id":5,"session_id":"api-1","role":"assistant","content":"It is Sunday","timestamp":1786313655.0}
         ]}
         """#)
 
@@ -129,12 +130,14 @@ struct SessionModelsTests {
 
         #expect(transcript.count == 1)
         let rendered = try #require(transcript.first)
-        #expect(rendered.role == .tool)
-        #expect(rendered.content.contains("terminal"))
-        #expect(rendered.content.contains("```json"))
+        #expect(rendered.role == .assistant)
+        #expect(rendered.content == "It is Sunday")
+        #expect(rendered.activity.count == 1)
+        #expect(rendered.activity.first?.name == "terminal")
+        #expect(rendered.activity.first?.detail?.contains("date") == true)
     }
 
-    @Test("Tool output is preserved as a fenced result block")
+    @Test("Tool output is preserved as attached work")
     func mapsToolResults() throws {
         let messages = try decode(#"""
         {"object":"list","session_id":"api-1","data":[
@@ -145,9 +148,62 @@ struct SessionModelsTests {
 
         let transcript = messages.asTranscript()
 
+        // Work with no reply after it still has to be reachable.
         #expect(transcript.count == 1)
-        #expect(transcript.first?.role == .tool)
-        #expect(transcript.first?.content.contains("Sunday") == true)
+        #expect(transcript.first?.role == .assistant)
+        #expect(transcript.first?.content.isEmpty == true)
+        #expect(transcript.first?.activity.first?.detail?.contains("Sunday") == true)
+    }
+
+    @Test("System prompts are configuration and never appear in the transcript")
+    func dropsSystemMessages() throws {
+        let messages = try decode(#"""
+        {"object":"list","session_id":"api-1","data":[
+          {"id":1,"session_id":"api-1","role":"system","content":"You are Hermes.","timestamp":1786313590.0},
+          {"id":2,"session_id":"api-1","role":"user","content":"Hi","timestamp":1786313592.0},
+          {"id":3,"session_id":"api-1","role":"assistant","content":"Hello","timestamp":1786313595.0}
+        ]}
+        """#)
+
+        let transcript = messages.asTranscript()
+
+        #expect(transcript.count == 2)
+        #expect(!transcript.contains { $0.role == .system })
+    }
+
+    @Test("Internal pseudo-tools are not shown as work")
+    func dropsInternalToolNames() throws {
+        let messages = try decode(#"""
+        {"object":"list","session_id":"api-1","data":[
+          {"id":4,"session_id":"api-1","role":"assistant","content":"",
+           "tool_calls":[{"id":"c1","function":{"name":"_thinking","arguments":"{}"}}],
+           "timestamp":1786313652.0},
+          {"id":5,"session_id":"api-1","role":"assistant","content":"Done","timestamp":1786313655.0}
+        ]}
+        """#)
+
+        let transcript = messages.asTranscript()
+
+        #expect(transcript.count == 1)
+        #expect(transcript.first?.activity.isEmpty == true)
+    }
+
+    @Test("Work is not carried across the user turn that follows it")
+    func doesNotAttachWorkToLaterTurns() throws {
+        let messages = try decode(#"""
+        {"object":"list","session_id":"api-1","data":[
+          {"id":1,"session_id":"api-1","role":"tool","tool_name":"python",
+           "content":"42","timestamp":1786313650.0},
+          {"id":2,"session_id":"api-1","role":"user","content":"Thanks","timestamp":1786313660.0},
+          {"id":3,"session_id":"api-1","role":"assistant","content":"Welcome","timestamp":1786313665.0}
+        ]}
+        """#)
+
+        let transcript = messages.asTranscript()
+
+        #expect(transcript.count == 3)
+        #expect(transcript.last?.content == "Welcome")
+        #expect(transcript.last?.activity.isEmpty == true)
     }
 
     @Test("An empty assistant turn contributes nothing to the transcript")
