@@ -1,0 +1,11 @@
+{
+	"folders": [
+		{
+			"path": "../../../../hermes/hermes-agent-azure"
+		},
+		{
+			"path": "../.."
+		}
+	],
+	"settings": {}
+}
